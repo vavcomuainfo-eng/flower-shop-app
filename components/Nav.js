@@ -8,8 +8,8 @@ const links = [
   { href: '/', label: 'Огляд' },
   { href: '/inventory', label: 'Залишки' },
   { href: '/suppliers', label: 'Постачальники' },
+  { href: '/bouquets', label: 'Букети' },
   // Наступні модулі підключимо тут:
-  // { href: '/bouquets', label: 'Букети' },
   // { href: '/sales', label: 'Продажі' },
 ];
 
