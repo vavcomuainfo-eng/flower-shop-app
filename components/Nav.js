@@ -7,10 +7,10 @@ import { supabase } from '@/lib/supabaseClient';
 const links = [
   { href: '/', label: 'Огляд' },
   { href: '/inventory', label: 'Залишки' },
+  { href: '/suppliers', label: 'Постачальники' },
   // Наступні модулі підключимо тут:
   // { href: '/bouquets', label: 'Букети' },
   // { href: '/sales', label: 'Продажі' },
-  // { href: '/suppliers', label: 'Постачальники' },
 ];
 
 export default function Nav() {

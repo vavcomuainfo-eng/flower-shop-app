@@ -4,10 +4,19 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 
-const emptyForm = { id: null, name: '', unit: 'шт', quantity: 0, min_quantity: 0, cost_price: 0 };
+const emptyForm = {
+  id: null,
+  name: '',
+  unit: 'шт',
+  quantity: 0,
+  min_quantity: 0,
+  cost_price: 0,
+  supplier_id: '',
+};
 
 export default function InventoryPage() {
   const [materials, setMaterials] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
@@ -16,14 +25,23 @@ export default function InventoryPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('materials')
-      .select('*')
+      .select('*, suppliers(name)')
       .order('name', { ascending: true });
     if (!error) setMaterials(data || []);
     setLoading(false);
   }
 
+  async function loadSuppliers() {
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('id, name')
+      .order('name', { ascending: true });
+    if (!error) setSuppliers(data || []);
+  }
+
   useEffect(() => {
     loadMaterials();
+    loadSuppliers();
   }, []);
 
   function openNew() {
@@ -44,6 +62,7 @@ export default function InventoryPage() {
       quantity: Number(form.quantity),
       min_quantity: Number(form.min_quantity),
       cost_price: Number(form.cost_price),
+      supplier_id: form.supplier_id || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -88,6 +107,7 @@ export default function InventoryPage() {
                 <th className="px-4 py-3 font-medium">Кількість</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
                 <th className="px-4 py-3 font-medium">Закупівельна ціна</th>
+                <th className="px-4 py-3 font-medium">Постачальник</th>
                 <th className="px-4 py-3 font-medium"></th>
               </tr>
             </thead>
@@ -105,6 +125,7 @@ export default function InventoryPage() {
                     </td>
                     <td className="px-4 py-3 text-sage">{m.unit}</td>
                     <td className="px-4 py-3">{m.cost_price} ₴</td>
+                    <td className="px-4 py-3 text-sage">{m.suppliers?.name || '—'}</td>
                     <td className="px-4 py-3 text-right space-x-3">
                       <button onClick={() => openEdit(m)} className="text-forest hover:underline">
                         Редагувати
@@ -178,6 +199,26 @@ export default function InventoryPage() {
                     className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm text-sage mb-1">Постачальник</label>
+                <select
+                  value={form.supplier_id || ''}
+                  onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
+                >
+                  <option value="">— не вказано —</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                {suppliers.length === 0 && (
+                  <p className="text-xs text-sage mt-1">
+                    Немає жодного постачальника — додайте на сторінці "Постачальники".
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
