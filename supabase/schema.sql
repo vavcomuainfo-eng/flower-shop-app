@@ -131,3 +131,14 @@ begin
     and bi.bouquet_id = p_bouquet_id;
 end;
 $$ language plpgsql security definer;
+
+-- Списання зі складу при прямому продажу окремого матеріалу (не букета)
+create or replace function deduct_material_stock(p_material_id uuid, p_qty numeric)
+returns void as $$
+begin
+  update materials
+  set quantity = quantity - p_qty,
+      updated_at = now()
+  where id = p_material_id;
+end;
+$$ language plpgsql security definer;

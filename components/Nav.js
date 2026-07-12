@@ -9,8 +9,7 @@ const links = [
   { href: '/inventory', label: 'Залишки' },
   { href: '/suppliers', label: 'Постачальники' },
   { href: '/bouquets', label: 'Букети' },
-  // Наступні модулі підключимо тут:
-  // { href: '/sales', label: 'Продажі' },
+  { href: '/sales', label: 'Продажі' },
 ];
 
 export default function Nav() {
