@@ -101,6 +101,8 @@ create table if not exists sales (
   total_amount numeric default 0,
   payment_method text default 'готівка',
   is_delivery boolean default false,
+  order_channel text not null default 'store' check (order_channel in ('store', 'own_delivery', 'glovo', 'bolt')),
+  external_order_ref text,          -- номер замовлення в Glovo/Bolt для звірки
   delivery_address text,
   delivery_phone text,
   delivery_date timestamptz,

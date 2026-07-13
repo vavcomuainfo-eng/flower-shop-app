@@ -4,16 +4,24 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 
+const CHANNELS = [
+  { value: 'store', label: 'На місці' },
+  { value: 'own_delivery', label: 'Власна доставка' },
+  { value: 'glovo', label: 'Glovo' },
+  { value: 'bolt', label: 'Bolt' },
+];
+
 export default function SalesPage() {
   const [bouquets, setBouquets] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [cart, setCart] = useState([]); // [{type, id, name, price, quantity}] — ціна завжди фіксована
   const [paymentMethod, setPaymentMethod] = useState('готівка');
-  const [isDelivery, setIsDelivery] = useState(false);
+  const [orderChannel, setOrderChannel] = useState('store');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
+  const [externalOrderRef, setExternalOrderRef] = useState('');
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,7 +49,7 @@ export default function SalesPage() {
   }, []);
 
   function addToCart(type, item) {
-    const price = type === 'bouquet' ? item.sale_price : item.sale_price;
+    const price = item.sale_price;
     setCart((prev) => {
       const existing = prev.find((c) => c.type === type && c.id === item.id);
       if (existing) {
@@ -61,8 +69,18 @@ export default function SalesPage() {
     setCart((prev) => prev.filter((_, i) => i !== index));
   }
 
+  const isPlatform = orderChannel === 'glovo' || orderChannel === 'bolt';
   const itemsTotal = cart.reduce((sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 0), 0);
-  const total = itemsTotal + (isDelivery ? Number(deliveryFee || 0) : 0);
+  const total = itemsTotal + (orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0);
+
+  function resetOrderExtras() {
+    setOrderChannel('store');
+    setDeliveryAddress('');
+    setDeliveryPhone('');
+    setDeliveryDate('');
+    setDeliveryFee(0);
+    setExternalOrderRef('');
+  }
 
   async function handleCheckout() {
     if (cart.length === 0) return;
@@ -73,12 +91,15 @@ export default function SalesPage() {
       .from('sales')
       .insert({
         total_amount: total,
-        payment_method: paymentMethod,
-        is_delivery: isDelivery,
-        delivery_address: isDelivery ? deliveryAddress : null,
-        delivery_phone: isDelivery ? deliveryPhone : null,
-        delivery_date: isDelivery && deliveryDate ? new Date(deliveryDate).toISOString() : null,
-        delivery_fee: isDelivery ? Number(deliveryFee || 0) : 0,
+        payment_method: isPlatform ? orderChannel : paymentMethod,
+        order_channel: orderChannel,
+        is_delivery: orderChannel !== 'store',
+        external_order_ref: isPlatform ? externalOrderRef || null : null,
+        delivery_address: orderChannel === 'own_delivery' ? deliveryAddress : null,
+        delivery_phone: orderChannel === 'own_delivery' ? deliveryPhone : null,
+        delivery_date:
+          orderChannel === 'own_delivery' && deliveryDate ? new Date(deliveryDate).toISOString() : null,
+        delivery_fee: orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0,
       })
       .select()
       .single();
@@ -113,11 +134,7 @@ export default function SalesPage() {
     }
 
     setCart([]);
-    setIsDelivery(false);
-    setDeliveryAddress('');
-    setDeliveryPhone('');
-    setDeliveryDate('');
-    setDeliveryFee(0);
+    resetOrderExtras();
     setMessage('Продаж оформлено, склад оновлено.');
     setSaving(false);
     loadAll();
@@ -210,28 +227,41 @@ export default function SalesPage() {
 
               <div className="border-t border-sage/20 mt-4 pt-4 space-y-3">
                 <div>
-                  <label className="block text-sm text-sage mb-1">Спосіб оплати</label>
-                  <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="w-full border border-sage/40 rounded px-3 py-2 bg-white text-sm"
-                  >
-                    <option value="готівка">Готівка</option>
-                    <option value="картка">Картка</option>
-                    <option value="переказ">Переказ</option>
-                  </select>
+                  <label className="block text-sm text-sage mb-1">Спосіб продажу</label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {CHANNELS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setOrderChannel(c.value)}
+                        className={`text-xs py-2 rounded border ${
+                          orderChannel === c.value
+                            ? 'bg-forest text-white border-forest'
+                            : 'bg-white text-sage border-sage/40'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    checked={isDelivery}
-                    onChange={(e) => setIsDelivery(e.target.checked)}
-                  />
-                  Доставка
-                </label>
+                {!isPlatform && (
+                  <div>
+                    <label className="block text-sm text-sage mb-1">Спосіб оплати</label>
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full border border-sage/40 rounded px-3 py-2 bg-white text-sm"
+                    >
+                      <option value="готівка">Готівка</option>
+                      <option value="картка">Картка</option>
+                      <option value="переказ">Переказ</option>
+                    </select>
+                  </div>
+                )}
 
-                {isDelivery && (
+                {orderChannel === 'own_delivery' && (
                   <div className="space-y-2 pl-1 border-l-2 border-sage/20 ml-1">
                     <div>
                       <label className="block text-xs text-sage mb-1">Адреса доставки</label>
@@ -273,6 +303,22 @@ export default function SalesPage() {
                   </div>
                 )}
 
+                {isPlatform && (
+                  <div className="space-y-2 pl-1 border-l-2 border-sage/20 ml-1">
+                    <div>
+                      <label className="block text-xs text-sage mb-1">№ замовлення в {orderChannel === 'glovo' ? 'Glovo' : 'Bolt'} (необов'язково)</label>
+                      <input
+                        value={externalOrderRef}
+                        onChange={(e) => setExternalOrderRef(e.target.value)}
+                        className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-sage">
+                      Оплата надійде від сервісу на картку пізніше — сюди фіксуємо лише сам факт продажу й списання складу.
+                    </p>
+                  </div>
+                )}
+
                 <p className="font-display text-2xl text-ink pt-2">{total.toFixed(0)} ₴</p>
 
                 {message && <p className="text-sm text-leaf">{message}</p>}
@@ -303,8 +349,8 @@ export default function SalesPage() {
                       .join(', ')}
                   </p>
                   <p className="text-sage text-xs">
-                    {s.payment_method}
-                    {s.is_delivery ? ' · доставка' : ''}
+                    {CHANNELS.find((c) => c.value === s.order_channel)?.label || s.order_channel}
+                    {s.external_order_ref ? ` · №${s.external_order_ref}` : ''}
                   </p>
                 </div>
               ))}
