@@ -11,6 +11,7 @@ const emptyForm = {
   quantity: 0,
   min_quantity: 0,
   cost_price: 0,
+  sale_price: 0,
   supplier_id: '',
 };
 
@@ -62,6 +63,7 @@ export default function InventoryPage() {
       quantity: Number(form.quantity),
       min_quantity: Number(form.min_quantity),
       cost_price: Number(form.cost_price),
+      sale_price: Number(form.sale_price),
       supplier_id: form.supplier_id || null,
       updated_at: new Date().toISOString(),
     };
@@ -107,6 +109,7 @@ export default function InventoryPage() {
                 <th className="px-4 py-3 font-medium">Кількість</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
                 <th className="px-4 py-3 font-medium">Закупівельна ціна</th>
+                <th className="px-4 py-3 font-medium">Роздрібна ціна</th>
                 <th className="px-4 py-3 font-medium">Постачальник</th>
                 <th className="px-4 py-3 font-medium"></th>
               </tr>
@@ -125,6 +128,7 @@ export default function InventoryPage() {
                     </td>
                     <td className="px-4 py-3 text-sage">{m.unit}</td>
                     <td className="px-4 py-3">{m.cost_price} ₴</td>
+                    <td className="px-4 py-3">{m.sale_price} ₴</td>
                     <td className="px-4 py-3 text-sage">{m.suppliers?.name || '—'}</td>
                     <td className="px-4 py-3 text-right space-x-3">
                       <button onClick={() => openEdit(m)} className="text-forest hover:underline">
@@ -199,6 +203,18 @@ export default function InventoryPage() {
                     className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm text-sage mb-1">
+                  Роздрібна ціна <span className="text-sage">(фіксована ціна на касі за одиницю)</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.sale_price}
+                  onChange={(e) => setForm({ ...form, sale_price: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
+                />
               </div>
               <div>
                 <label className="block text-sm text-sage mb-1">Постачальник</label>

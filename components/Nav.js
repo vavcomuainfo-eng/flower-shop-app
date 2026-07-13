@@ -10,6 +10,7 @@ const ownerLinks = [
   { href: '/', label: 'Огляд' },
   { href: '/inventory', label: 'Залишки' },
   { href: '/suppliers', label: 'Постачальники' },
+  { href: '/purchases', label: 'Поповнення складу' },
   { href: '/bouquets', label: 'Букети' },
   { href: '/sales', label: 'Продажі' },
 ];

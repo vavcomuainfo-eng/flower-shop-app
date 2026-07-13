@@ -52,7 +52,8 @@ create table if not exists materials (
   unit text not null default 'шт',    -- шт, м, уп тощо
   quantity numeric not null default 0,
   min_quantity numeric default 0,     -- поріг для "мало на складі"
-  cost_price numeric not null default 0,   -- закупівельна ціна за одиницю
+  cost_price numeric not null default 0,   -- закупівельна ціна за одиницю (бачить лише власник)
+  sale_price numeric not null default 0,   -- фіксована роздрібна ціна для прямого продажу (бачить каса)
   supplier_id uuid references suppliers(id) on delete set null,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
@@ -99,6 +100,11 @@ create table if not exists sales (
   sale_date timestamptz default now(),
   total_amount numeric default 0,
   payment_method text default 'готівка',
+  is_delivery boolean default false,
+  delivery_address text,
+  delivery_phone text,
+  delivery_date timestamptz,
+  delivery_fee numeric default 0,
   notes text
 );
 
@@ -183,15 +189,26 @@ drop policy if exists "authenticated full access" on materials;
 create policy "owner full access on materials" on materials
   for all using (is_owner()) with check (is_owner());
 
--- Захист cost_price навіть при непрямих операціях: продавець ніколи не може
--- встановити чи змінити закупівельну ціну, навіть через API-запит напряму
+-- Історія закупівель теж містить ціни — доступ лише власнику
+drop policy if exists "authenticated full access" on purchases;
+create policy "owner full access on purchases" on purchases
+  for all using (is_owner()) with check (is_owner());
+
+drop policy if exists "authenticated full access" on purchase_items;
+create policy "owner full access on purchase_items" on purchase_items
+  for all using (is_owner()) with check (is_owner());
+
+-- Захист цін навіть при непрямих операціях: продавець ніколи не може
+-- встановити чи змінити жодну ціну (закупівельну чи роздрібну), навіть через API-запит напряму
 create or replace function protect_cost_price() returns trigger as $$
 begin
   if not is_owner() then
     if tg_op = 'UPDATE' then
       new.cost_price := old.cost_price;
+      new.sale_price := old.sale_price;
     else
       new.cost_price := 0;
+      new.sale_price := 0;
     end if;
   end if;
   return new;
@@ -205,9 +222,9 @@ create trigger protect_cost_price_trigger
 
 -- Безпечний перегляд складу для продавця: жодного стовпця з ціною
 create or replace function get_materials_catalog()
-returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric)
+returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric)
 language sql security definer stable as $$
-  select id, name, unit, quantity, min_quantity from materials order by name;
+  select id, name, unit, quantity, min_quantity, sale_price from materials order by name;
 $$;
 
 -- Продавець може додати нову позицію асортименту (ціна закупівлі завжди 0,

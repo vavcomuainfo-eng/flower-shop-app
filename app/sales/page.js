@@ -7,8 +7,13 @@ import ProtectedPage from '@/components/ProtectedPage';
 export default function SalesPage() {
   const [bouquets, setBouquets] = useState([]);
   const [materials, setMaterials] = useState([]);
-  const [cart, setCart] = useState([]); // [{type, id, name, price, quantity}]
+  const [cart, setCart] = useState([]); // [{type, id, name, price, quantity}] — ціна завжди фіксована
   const [paymentMethod, setPaymentMethod] = useState('готівка');
+  const [isDelivery, setIsDelivery] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryFee, setDeliveryFee] = useState(0);
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +41,7 @@ export default function SalesPage() {
   }, []);
 
   function addToCart(type, item) {
+    const price = type === 'bouquet' ? item.sale_price : item.sale_price;
     setCart((prev) => {
       const existing = prev.find((c) => c.type === type && c.id === item.id);
       if (existing) {
@@ -43,28 +49,20 @@ export default function SalesPage() {
           c.type === type && c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c
         );
       }
-      return [
-        ...prev,
-        {
-          type,
-          id: item.id,
-          name: item.name,
-          price: type === 'bouquet' ? item.sale_price : 0,
-          quantity: 1,
-        },
-      ];
+      return [...prev, { type, id: item.id, name: item.name, price, quantity: 1 }];
     });
   }
 
-  function updateCartRow(index, field, value) {
-    setCart((prev) => prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)));
+  function updateCartQuantity(index, value) {
+    setCart((prev) => prev.map((c, i) => (i === index ? { ...c, quantity: value } : c)));
   }
 
   function removeFromCart(index) {
     setCart((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const total = cart.reduce((sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 0), 0);
+  const itemsTotal = cart.reduce((sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 0), 0);
+  const total = itemsTotal + (isDelivery ? Number(deliveryFee || 0) : 0);
 
   async function handleCheckout() {
     if (cart.length === 0) return;
@@ -73,7 +71,15 @@ export default function SalesPage() {
 
     const { data: sale, error: saleError } = await supabase
       .from('sales')
-      .insert({ total_amount: total, payment_method: paymentMethod })
+      .insert({
+        total_amount: total,
+        payment_method: paymentMethod,
+        is_delivery: isDelivery,
+        delivery_address: isDelivery ? deliveryAddress : null,
+        delivery_phone: isDelivery ? deliveryPhone : null,
+        delivery_date: isDelivery && deliveryDate ? new Date(deliveryDate).toISOString() : null,
+        delivery_fee: isDelivery ? Number(deliveryFee || 0) : 0,
+      })
       .select()
       .single();
 
@@ -107,6 +113,11 @@ export default function SalesPage() {
     }
 
     setCart([]);
+    setIsDelivery(false);
+    setDeliveryAddress('');
+    setDeliveryPhone('');
+    setDeliveryDate('');
+    setDeliveryFee(0);
     setMessage('Продаж оформлено, склад оновлено.');
     setSaving(false);
     loadAll();
@@ -153,14 +164,20 @@ export default function SalesPage() {
                     <button
                       key={m.id}
                       onClick={() => addToCart('material', m)}
-                      className="bg-white border border-sage/20 rounded p-3 text-left hover:border-forest transition-colors"
+                      disabled={!m.sale_price}
+                      className="bg-white border border-sage/20 rounded p-3 text-left hover:border-forest transition-colors disabled:opacity-40"
                     >
                       <p className="text-sm text-ink">{m.name}</p>
-                      <p className="text-xs text-sage">залишок: {m.quantity} {m.unit}</p>
+                      <p className="text-xs text-sage">
+                        {m.sale_price ? `${m.sale_price} ₴` : 'ціну ще не задано'} · залишок: {m.quantity} {m.unit}
+                      </p>
                     </button>
                   ))}
                 </div>
               )}
+              <p className="text-xs text-sage mt-2">
+                Роздрібну ціну товару задає власник у "Залишках". Без ціни продати окремо не можна.
+              </p>
             </div>
           </div>
 
@@ -179,17 +196,10 @@ export default function SalesPage() {
                         type="number"
                         step="0.01"
                         value={c.quantity}
-                        onChange={(e) => updateCartRow(index, 'quantity', e.target.value)}
+                        onChange={(e) => updateCartQuantity(index, e.target.value)}
                         className="w-14 border border-sage/40 rounded px-1 py-1 bg-white text-center"
                       />
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={c.price}
-                        onChange={(e) => updateCartRow(index, 'price', e.target.value)}
-                        className="w-20 border border-sage/40 rounded px-1 py-1 bg-white text-right"
-                      />
-                      <span className="text-sage">₴</span>
+                      <span className="w-20 text-right text-ink">{c.price} ₴</span>
                       <button onClick={() => removeFromCart(index)} className="text-rose">
                         ✕
                       </button>
@@ -198,7 +208,7 @@ export default function SalesPage() {
                 </div>
               )}
 
-              <div className="border-t border-sage/20 mt-4 pt-4">
+              <div className="border-t border-sage/20 mt-4 pt-4 space-y-3">
                 <div>
                   <label className="block text-sm text-sage mb-1">Спосіб оплати</label>
                   <select
@@ -212,14 +222,65 @@ export default function SalesPage() {
                   </select>
                 </div>
 
-                <p className="font-display text-2xl text-ink mt-4">{total.toFixed(0)} ₴</p>
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={isDelivery}
+                    onChange={(e) => setIsDelivery(e.target.checked)}
+                  />
+                  Доставка
+                </label>
 
-                {message && <p className="text-sm text-leaf mt-2">{message}</p>}
+                {isDelivery && (
+                  <div className="space-y-2 pl-1 border-l-2 border-sage/20 ml-1">
+                    <div>
+                      <label className="block text-xs text-sage mb-1">Адреса доставки</label>
+                      <input
+                        value={deliveryAddress}
+                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-sage mb-1">Телефон отримувача</label>
+                      <input
+                        value={deliveryPhone}
+                        onChange={(e) => setDeliveryPhone(e.target.value)}
+                        className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-sage mb-1">Дата й час</label>
+                        <input
+                          type="datetime-local"
+                          value={deliveryDate}
+                          onChange={(e) => setDeliveryDate(e.target.value)}
+                          className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-sage mb-1">Вартість доставки</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={deliveryFee}
+                          onChange={(e) => setDeliveryFee(e.target.value)}
+                          className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <p className="font-display text-2xl text-ink pt-2">{total.toFixed(0)} ₴</p>
+
+                {message && <p className="text-sm text-leaf">{message}</p>}
 
                 <button
                   onClick={handleCheckout}
                   disabled={cart.length === 0 || saving}
-                  className="w-full bg-forest text-white text-sm py-2 rounded mt-4 hover:bg-forest/90 disabled:opacity-50"
+                  className="w-full bg-forest text-white text-sm py-2 rounded hover:bg-forest/90 disabled:opacity-50"
                 >
                   {saving ? 'Оформлюємо...' : 'Оформити продаж'}
                 </button>
@@ -241,7 +302,10 @@ export default function SalesPage() {
                       .filter(Boolean)
                       .join(', ')}
                   </p>
-                  <p className="text-sage text-xs">{s.payment_method}</p>
+                  <p className="text-sage text-xs">
+                    {s.payment_method}
+                    {s.is_delivery ? ' · доставка' : ''}
+                  </p>
                 </div>
               ))}
             </div>
