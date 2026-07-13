@@ -118,6 +118,7 @@ create table if not exists sale_items (
   material_id uuid references materials(id) on delete set null,
   quantity numeric not null default 1,
   price numeric not null default 0,
+  cost_at_sale numeric not null default 0,  -- собівартість на МОМЕНТ продажу (не змінюється потім, навіть якщо ціни зміняться)
   check (bouquet_id is not null or material_id is not null)
 );
 
@@ -200,6 +201,18 @@ drop policy if exists "authenticated full access" on purchase_items;
 create policy "owner full access on purchase_items" on purchase_items
   for all using (is_owner()) with check (is_owner());
 
+-- sale_items містить собівартість — читати можна лише власнику,
+-- а створювати (при оформленні продажу) може будь-який залогінений співробітник
+drop policy if exists "authenticated full access" on sale_items;
+create policy "owner select sale_items" on sale_items
+  for select using (is_owner());
+create policy "insert sale_items" on sale_items
+  for insert with check (auth.role() = 'authenticated');
+create policy "owner update sale_items" on sale_items
+  for update using (is_owner()) with check (is_owner());
+create policy "owner delete sale_items" on sale_items
+  for delete using (is_owner());
+
 -- Захист цін навіть при непрямих операціях: продавець ніколи не може
 -- встановити чи змінити жодну ціну (закупівельну чи роздрібну), навіть через API-запит напряму
 create or replace function protect_cost_price() returns trigger as $$
@@ -252,5 +265,121 @@ begin
   update materials
   set quantity = quantity + p_add_quantity, updated_at = now()
   where id = p_material_id;
+end;
+$$;
+
+-- Фіксує собівартість позицій чека одразу після продажу (за цінами на ЦЮ мить).
+-- Продавець викликає цю функцію після оформлення продажу, але сама вона
+-- ніколи не повертає жодних цін клієнту — лише записує їх у базу.
+create or replace function finalize_sale_costs(p_sale_id uuid)
+returns void
+language plpgsql security definer as $$
+begin
+  update sale_items si
+  set cost_at_sale = si.quantity * (
+    coalesce(
+      (select sum(bi.quantity * m.cost_price)
+       from bouquet_items bi join materials m on m.id = bi.material_id
+       where bi.bouquet_id = si.bouquet_id), 0)
+    + coalesce((select cost_price from materials where id = si.material_id), 0)
+  )
+  where si.sale_id = p_sale_id;
+end;
+$$;
+
+-- Безпечна історія продажів для каси (без собівартості) — доступна і продавцю, і власнику
+create or replace function get_recent_sales(p_limit int default 15)
+returns table(
+  id uuid,
+  sale_date timestamptz,
+  total_amount numeric,
+  payment_method text,
+  order_channel text,
+  external_order_ref text,
+  items_summary text
+)
+language sql security definer stable as $$
+  select
+    s.id, s.sale_date, s.total_amount, s.payment_method, s.order_channel, s.external_order_ref,
+    (select string_agg(coalesce(b.name, m.name), ', ')
+     from sale_items si
+     left join bouquets b on b.id = si.bouquet_id
+     left join materials m on m.id = si.material_id
+     where si.sale_id = s.id) as items_summary
+  from sales s
+  order by s.sale_date desc
+  limit p_limit;
+$$;
+create or replace function get_sales_report(p_from timestamptz, p_to timestamptz)
+returns table(revenue numeric, cost numeric, profit numeric, orders_count bigint)
+language plpgsql security definer as $$
+begin
+  if not is_owner() then
+    raise exception 'access denied';
+  end if;
+
+  return query
+  select
+    coalesce((select sum(total_amount) from sales where sale_date between p_from and p_to), 0) as revenue,
+    coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
+              where s.sale_date between p_from and p_to), 0) as cost,
+    coalesce((select sum(total_amount) from sales where sale_date between p_from and p_to), 0)
+      - coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
+                  where s.sale_date between p_from and p_to), 0) as profit,
+    (select count(*) from sales where sale_date between p_from and p_to) as orders_count;
+end;
+$$;
+
+create or replace function get_daily_sales(p_from timestamptz, p_to timestamptz)
+returns table(day date, revenue numeric, cost numeric, profit numeric, orders_count bigint)
+language plpgsql security definer as $$
+begin
+  if not is_owner() then
+    raise exception 'access denied';
+  end if;
+
+  return query
+  with daily_revenue as (
+    select sale_date::date as day, sum(total_amount) as revenue, count(*) as orders_count
+    from sales
+    where sale_date between p_from and p_to
+    group by sale_date::date
+  ),
+  daily_cost as (
+    select s.sale_date::date as day, sum(si.cost_at_sale) as cost
+    from sale_items si
+    join sales s on s.id = si.sale_id
+    where s.sale_date between p_from and p_to
+    group by s.sale_date::date
+  )
+  select
+    dr.day,
+    dr.revenue,
+    coalesce(dc.cost, 0) as cost,
+    dr.revenue - coalesce(dc.cost, 0) as profit,
+    dr.orders_count
+  from daily_revenue dr
+  left join daily_cost dc on dc.day = dr.day
+  order by dr.day desc;
+end;
+$$;
+
+create or replace function get_top_bouquets(p_from timestamptz, p_to timestamptz, p_limit int default 5)
+returns table(name text, qty numeric, revenue numeric)
+language plpgsql security definer as $$
+begin
+  if not is_owner() then
+    raise exception 'access denied';
+  end if;
+
+  return query
+  select b.name, sum(si.quantity) as qty, sum(si.quantity * si.price) as revenue
+  from sale_items si
+  join sales s on s.id = si.sale_id
+  join bouquets b on b.id = si.bouquet_id
+  where s.sale_date between p_from and p_to and si.bouquet_id is not null
+  group by b.name
+  order by qty desc
+  limit p_limit;
 end;
 $$;

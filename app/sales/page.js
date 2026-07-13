@@ -32,11 +32,7 @@ export default function SalesPage() {
     const [bRes, mRes, sRes] = await Promise.all([
       supabase.from('bouquets').select('id, name, sale_price').eq('is_active', true).order('name'),
       supabase.rpc('get_materials_catalog'),
-      supabase
-        .from('sales')
-        .select('*, sale_items(quantity, price, bouquets(name), materials(name))')
-        .order('sale_date', { ascending: false })
-        .limit(15),
+      supabase.rpc('get_recent_sales', { p_limit: 15 }),
     ]);
     if (!bRes.error) setBouquets(bRes.data || []);
     if (!mRes.error) setMaterials(mRes.data || []);
@@ -118,6 +114,7 @@ export default function SalesPage() {
       price: Number(c.price),
     }));
     await supabase.from('sale_items').insert(itemRows);
+    await supabase.rpc('finalize_sale_costs', { p_sale_id: sale.id });
 
     for (const c of cart) {
       if (c.type === 'bouquet') {
@@ -342,12 +339,7 @@ export default function SalesPage() {
                     <span>{new Date(s.sale_date).toLocaleString('uk-UA')}</span>
                     <span className="font-medium">{s.total_amount} ₴</span>
                   </div>
-                  <p className="text-sage text-xs mt-1">
-                    {s.sale_items
-                      ?.map((it) => it.bouquets?.name || it.materials?.name)
-                      .filter(Boolean)
-                      .join(', ')}
-                  </p>
+                  <p className="text-sage text-xs mt-1">{s.items_summary}</p>
                   <p className="text-sage text-xs">
                     {CHANNELS.find((c) => c.value === s.order_channel)?.label || s.order_channel}
                     {s.external_order_ref ? ` · №${s.external_order_ref}` : ''}
