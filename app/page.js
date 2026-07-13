@@ -22,7 +22,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <ProtectedPage>
+    <ProtectedPage ownerOnly>
       <h1 className="font-display text-2xl text-forest mb-1">Огляд</h1>
       <div className="stem-divider w-16 mb-8" />
 

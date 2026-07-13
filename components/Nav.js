@@ -1,10 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getMyRole } from '@/lib/role';
 
-const links = [
+const ownerLinks = [
   { href: '/', label: 'Огляд' },
   { href: '/inventory', label: 'Залишки' },
   { href: '/suppliers', label: 'Постачальники' },
@@ -12,15 +14,27 @@ const links = [
   { href: '/sales', label: 'Продажі' },
 ];
 
+const sellerLinks = [
+  { href: '/sales', label: 'Продажі' },
+  { href: '/assortment', label: 'Асортимент' },
+];
+
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const [role, setRole] = useState(null);
+
+  useEffect(() => {
+    getMyRole().then(setRole);
+  }, []);
 
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push('/login');
     router.refresh();
   }
+
+  const links = role === 'owner' ? ownerLinks : sellerLinks;
 
   return (
     <header className="border-b border-sage/30 bg-paper">

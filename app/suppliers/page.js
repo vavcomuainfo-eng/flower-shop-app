@@ -61,7 +61,7 @@ export default function SuppliersPage() {
   }
 
   return (
-    <ProtectedPage>
+    <ProtectedPage ownerOnly>
       <div className="flex items-center justify-between mb-1">
         <h1 className="font-display text-2xl text-forest">Постачальники</h1>
         <button

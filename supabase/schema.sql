@@ -3,6 +3,38 @@
 -- Виконати цей файл у Supabase → SQL Editor → New query → Run
 -- =========================================================
 
+-- ---------- РОЛІ КОРИСТУВАЧІВ (власник / продавець) ----------
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'seller' check (role in ('owner', 'seller')),
+  created_at timestamptz default now()
+);
+
+alter table profiles enable row level security;
+
+create policy "read own profile" on profiles
+  for select using (auth.uid() = id);
+
+-- Автоматично створює профіль (роль "продавець" за замовчуванням) для кожного нового користувача.
+-- Власнику потрібно вручну змінити свою роль на "owner" через Table Editor (див. README).
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, role) values (new.id, 'seller')
+  on conflict (id) do nothing;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+create or replace function is_owner() returns boolean as $$
+  select exists(select 1 from profiles where id = auth.uid() and role = 'owner');
+$$ language sql security definer stable;
+
 -- ---------- ПОСТАЧАЛЬНИКИ ----------
 create table if not exists suppliers (
   id uuid primary key default gen_random_uuid(),
@@ -142,3 +174,64 @@ begin
   where id = p_material_id;
 end;
 $$ language plpgsql security definer;
+
+-- =========================================================
+-- Обмеження прямого доступу до materials лише власником
+-- (бо там зберігається закупівельна ціна — cost_price)
+-- =========================================================
+drop policy if exists "authenticated full access" on materials;
+create policy "owner full access on materials" on materials
+  for all using (is_owner()) with check (is_owner());
+
+-- Захист cost_price навіть при непрямих операціях: продавець ніколи не може
+-- встановити чи змінити закупівельну ціну, навіть через API-запит напряму
+create or replace function protect_cost_price() returns trigger as $$
+begin
+  if not is_owner() then
+    if tg_op = 'UPDATE' then
+      new.cost_price := old.cost_price;
+    else
+      new.cost_price := 0;
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists protect_cost_price_trigger on materials;
+create trigger protect_cost_price_trigger
+  before insert or update on materials
+  for each row execute function protect_cost_price();
+
+-- Безпечний перегляд складу для продавця: жодного стовпця з ціною
+create or replace function get_materials_catalog()
+returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric)
+language sql security definer stable as $$
+  select id, name, unit, quantity, min_quantity from materials order by name;
+$$;
+
+-- Продавець може додати нову позицію асортименту (ціна закупівлі завжди 0,
+-- власник заповнює її пізніше в "Залишках")
+create or replace function add_material(p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0)
+returns uuid
+language plpgsql security definer as $$
+declare
+  new_id uuid;
+begin
+  insert into materials (name, unit, quantity, min_quantity, cost_price)
+  values (p_name, p_unit, p_quantity, p_min_quantity, 0)
+  returning id into new_id;
+  return new_id;
+end;
+$$;
+
+-- Продавець може поповнити залишок існуючої позиції, не бачачи й не змінюючи ціну
+create or replace function restock_material(p_material_id uuid, p_add_quantity numeric)
+returns void
+language plpgsql security definer as $$
+begin
+  update materials
+  set quantity = quantity + p_add_quantity, updated_at = now()
+  where id = p_material_id;
+end;
+$$;

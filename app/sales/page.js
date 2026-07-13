@@ -18,7 +18,7 @@ export default function SalesPage() {
     setLoading(true);
     const [bRes, mRes, sRes] = await Promise.all([
       supabase.from('bouquets').select('id, name, sale_price').eq('is_active', true).order('name'),
-      supabase.from('materials').select('id, name, quantity, unit').order('name'),
+      supabase.rpc('get_materials_catalog'),
       supabase
         .from('sales')
         .select('*, sale_items(quantity, price, bouquets(name), materials(name))')

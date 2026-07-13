@@ -82,7 +82,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <ProtectedPage>
+    <ProtectedPage ownerOnly>
       <div className="flex items-center justify-between mb-1">
         <h1 className="font-display text-2xl text-forest">Залишки</h1>
         <button

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getMyRole } from '@/lib/role';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,12 +17,14 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setError('Невірний email або пароль.');
       return;
     }
-    router.push('/');
+    const role = await getMyRole();
+    setLoading(false);
+    router.push(role === 'owner' ? '/' : '/sales');
     router.refresh();
   }
 
