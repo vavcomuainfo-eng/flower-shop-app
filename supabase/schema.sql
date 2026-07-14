@@ -1,5 +1,5 @@
 -- =========================================================
--- Схема бази даних для обліку квіткового магазину
+-- Схема бази даних для мережі магазинів (квіти, вазони, іграшки, свічки)
 -- Виконати цей файл у Supabase → SQL Editor → New query → Run
 -- =========================================================
 
@@ -15,8 +15,6 @@ alter table profiles enable row level security;
 create policy "read own profile" on profiles
   for select using (auth.uid() = id);
 
--- Автоматично створює профіль (роль "продавець" за замовчуванням) для кожного нового користувача.
--- Власнику потрібно вручну змінити свою роль на "owner" через Table Editor (див. README).
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -35,6 +33,23 @@ create or replace function is_owner() returns boolean as $$
   select exists(select 1 from profiles where id = auth.uid() and role = 'owner');
 $$ language sql security definer stable;
 
+-- ---------- МАГАЗИНИ ТА ЦЕНТРАЛЬНИЙ СКЛАД ----------
+create table if not exists locations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  type text not null default 'shop' check (type in ('shop', 'warehouse')),
+  address text,
+  phone text,
+  created_at timestamptz default now()
+);
+
+-- Який працівник до якого магазину має доступ (власник має доступ до всіх завжди)
+create table if not exists profile_locations (
+  profile_id uuid not null references profiles(id) on delete cascade,
+  location_id uuid not null references locations(id) on delete cascade,
+  primary key (profile_id, location_id)
+);
+
 -- ---------- ПОСТАЧАЛЬНИКИ ----------
 create table if not exists suppliers (
   id uuid primary key default gen_random_uuid(),
@@ -45,13 +60,11 @@ create table if not exists suppliers (
   created_at timestamptz default now()
 );
 
--- ---------- МАТЕРІАЛИ / КВІТИ (залишки) ----------
+-- ---------- МАТЕРІАЛИ / ТОВАРИ (єдиний каталог на всю мережу) ----------
 create table if not exists materials (
   id uuid primary key default gen_random_uuid(),
   name text not null,                 -- напр. "Троянда червона 60см"
   unit text not null default 'шт',    -- шт, м, уп тощо
-  quantity numeric not null default 0,
-  min_quantity numeric default 0,     -- поріг для "мало на складі"
   cost_price numeric not null default 0,   -- закупівельна ціна за одиницю (бачить лише власник)
   sale_price numeric not null default 0,   -- фіксована роздрібна ціна для прямого продажу (бачить каса)
   supplier_id uuid references suppliers(id) on delete set null,
@@ -59,17 +72,26 @@ create table if not exists materials (
   created_at timestamptz default now()
 );
 
--- ---------- БУКЕТИ (готові вироби / рецепти) ----------
+-- Залишки — окремо для кожного магазину/складу
+create table if not exists stock_levels (
+  location_id uuid not null references locations(id) on delete cascade,
+  material_id uuid not null references materials(id) on delete cascade,
+  quantity numeric not null default 0,
+  min_quantity numeric not null default 0,   -- поріг "мало на складі", свій для кожної точки
+  updated_at timestamptz default now(),
+  primary key (location_id, material_id)
+);
+
+-- ---------- БУКЕТИ (готові вироби / рецепти, спільні на всю мережу) ----------
 create table if not exists bouquets (
   id uuid primary key default gen_random_uuid(),
-  name text not null,                 -- напр. "Букет 'Весняний' з 15 троянд"
+  name text not null,
   sale_price numeric not null default 0,
   description text,
   is_active boolean default true,
   created_at timestamptz default now()
 );
 
--- Рецепт букета: з яких матеріалів і в якій кількості складається
 create table if not exists bouquet_items (
   id uuid primary key default gen_random_uuid(),
   bouquet_id uuid not null references bouquets(id) on delete cascade,
@@ -77,9 +99,10 @@ create table if not exists bouquet_items (
   quantity numeric not null default 1
 );
 
--- ---------- ЗАКУПІВЛІ (надходження від постачальників) ----------
+-- ---------- ЗАКУПІВЛІ (надходження від постачальників — завжди на центральний склад) ----------
 create table if not exists purchases (
   id uuid primary key default gen_random_uuid(),
+  location_id uuid references locations(id) on delete set null,
   supplier_id uuid references suppliers(id) on delete set null,
   purchase_date timestamptz default now(),
   total_cost numeric default 0,
@@ -94,15 +117,16 @@ create table if not exists purchase_items (
   unit_cost numeric not null
 );
 
--- ---------- ПРОДАЖІ (каса) ----------
+-- ---------- ПРОДАЖІ (каса, прив'язана до конкретного магазину) ----------
 create table if not exists sales (
   id uuid primary key default gen_random_uuid(),
+  location_id uuid references locations(id) on delete set null,
   sale_date timestamptz default now(),
   total_amount numeric default 0,
   payment_method text default 'готівка',
   is_delivery boolean default false,
   order_channel text not null default 'store' check (order_channel in ('store', 'own_delivery', 'glovo', 'bolt')),
-  external_order_ref text,          -- номер замовлення в Glovo/Bolt для звірки
+  external_order_ref text,
   delivery_address text,
   delivery_phone text,
   delivery_date timestamptz,
@@ -110,7 +134,6 @@ create table if not exists sales (
   notes text
 );
 
--- Позиція продажу: або букет (готовий рецепт), або окремий матеріал (напр. поштучна квітка, листівка)
 create table if not exists sale_items (
   id uuid primary key default gen_random_uuid(),
   sale_id uuid not null references sales(id) on delete cascade,
@@ -118,7 +141,7 @@ create table if not exists sale_items (
   material_id uuid references materials(id) on delete set null,
   quantity numeric not null default 1,
   price numeric not null default 0,
-  cost_at_sale numeric not null default 0,  -- собівартість на МОМЕНТ продажу (не змінюється потім, навіть якщо ціни зміняться)
+  cost_at_sale numeric not null default 0,
   check (bouquet_id is not null or material_id is not null)
 );
 
@@ -126,29 +149,34 @@ create table if not exists sale_items (
 -- Індекси
 -- =========================================================
 create index if not exists idx_materials_supplier on materials(supplier_id);
+create index if not exists idx_stock_levels_material on stock_levels(material_id);
 create index if not exists idx_bouquet_items_bouquet on bouquet_items(bouquet_id);
 create index if not exists idx_bouquet_items_material on bouquet_items(material_id);
 create index if not exists idx_sale_items_sale on sale_items(sale_id);
 create index if not exists idx_purchase_items_purchase on purchase_items(purchase_id);
+create index if not exists idx_sales_location on sales(location_id);
+create index if not exists idx_purchases_location on purchases(location_id);
 
 -- =========================================================
--- Row Level Security: доступ лише для залогінених співробітників
+-- Row Level Security
 -- =========================================================
 alter table suppliers enable row level security;
 alter table materials enable row level security;
+alter table stock_levels enable row level security;
 alter table bouquets enable row level security;
 alter table bouquet_items enable row level security;
 alter table purchases enable row level security;
 alter table purchase_items enable row level security;
 alter table sales enable row level security;
 alter table sale_items enable row level security;
+alter table locations enable row level security;
+alter table profile_locations enable row level security;
 
 do $$
 declare
   t text;
 begin
-  for t in select unnest(array['suppliers','materials','bouquets','bouquet_items',
-                                'purchases','purchase_items','sales','sale_items'])
+  for t in select unnest(array['suppliers','bouquets','bouquet_items','sales'])
   loop
     execute format(
       'create policy "authenticated full access" on %I
@@ -157,53 +185,33 @@ begin
   end loop;
 end $$;
 
--- =========================================================
--- Функція: автоматичне списання матеріалів зі складу при продажу букета
--- (викликається з коду після створення sale_item з bouquet_id)
--- =========================================================
-create or replace function deduct_stock_for_bouquet(p_bouquet_id uuid, p_qty numeric)
-returns void as $$
-begin
-  update materials m
-  set quantity = m.quantity - (bi.quantity * p_qty),
-      updated_at = now()
-  from bouquet_items bi
-  where bi.material_id = m.id
-    and bi.bouquet_id = p_bouquet_id;
-end;
-$$ language plpgsql security definer;
+-- Магазини: бачити список може будь-хто залогінений (треба обрати свій магазин),
+-- створювати/редагувати/видаляти — лише власник
+create policy "authenticated can view locations" on locations
+  for select using (auth.role() = 'authenticated');
+create policy "owner manage locations" on locations
+  for insert with check (is_owner());
+create policy "owner update locations" on locations
+  for update using (is_owner()) with check (is_owner());
+create policy "owner delete locations" on locations
+  for delete using (is_owner());
 
--- Списання зі складу при прямому продажу окремого матеріалу (не букета)
-create or replace function deduct_material_stock(p_material_id uuid, p_qty numeric)
-returns void as $$
-begin
-  update materials
-  set quantity = quantity - p_qty,
-      updated_at = now()
-  where id = p_material_id;
-end;
-$$ language plpgsql security definer;
+-- Прив'язка працівників до магазинів — керує лише власник (через функції нижче)
+create policy "owner full access profile_locations" on profile_locations
+  for all using (is_owner()) with check (is_owner());
 
--- =========================================================
--- Обмеження прямого доступу до materials лише власником
--- (бо там зберігається закупівельна ціна — cost_price)
--- =========================================================
-drop policy if exists "authenticated full access" on materials;
+-- materials і stock_levels містять/пов'язані з цінами — прямий доступ лише власнику,
+-- продавець працює через безпечні функції нижче
 create policy "owner full access on materials" on materials
   for all using (is_owner()) with check (is_owner());
-
--- Історія закупівель теж містить ціни — доступ лише власнику
-drop policy if exists "authenticated full access" on purchases;
-create policy "owner full access on purchases" on purchases
+create policy "owner full access on stock_levels" on stock_levels
   for all using (is_owner()) with check (is_owner());
 
-drop policy if exists "authenticated full access" on purchase_items;
+create policy "owner full access on purchases" on purchases
+  for all using (is_owner()) with check (is_owner());
 create policy "owner full access on purchase_items" on purchase_items
   for all using (is_owner()) with check (is_owner());
 
--- sale_items містить собівартість — читати можна лише власнику,
--- а створювати (при оформленні продажу) може будь-який залогінений співробітник
-drop policy if exists "authenticated full access" on sale_items;
 create policy "owner select sale_items" on sale_items
   for select using (is_owner());
 create policy "insert sale_items" on sale_items
@@ -213,8 +221,7 @@ create policy "owner update sale_items" on sale_items
 create policy "owner delete sale_items" on sale_items
   for delete using (is_owner());
 
--- Захист цін навіть при непрямих операціях: продавець ніколи не може
--- встановити чи змінити жодну ціну (закупівельну чи роздрібну), навіть через API-запит напряму
+-- Захист цін навіть при непрямих операціях
 create or replace function protect_cost_price() returns trigger as $$
 begin
   if not is_owner() then
@@ -235,42 +242,136 @@ create trigger protect_cost_price_trigger
   before insert or update on materials
   for each row execute function protect_cost_price();
 
--- Безпечний перегляд складу для продавця: жодного стовпця з ціною
-create or replace function get_materials_catalog()
-returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric)
+-- =========================================================
+-- Функції для роботи з магазинами
+-- =========================================================
+
+-- Список магазинів, доступних поточному користувачу (власнику — всі, продавцю — лише призначені)
+create or replace function get_my_locations()
+returns table(id uuid, name text, type text)
 language sql security definer stable as $$
-  select id, name, unit, quantity, min_quantity, sale_price from materials order by name;
+  select l.id, l.name, l.type
+  from locations l
+  where is_owner() or exists (
+    select 1 from profile_locations pl where pl.profile_id = auth.uid() and pl.location_id = l.id
+  )
+  order by (l.type = 'warehouse') desc, l.name;
 $$;
 
--- Продавець може додати нову позицію асортименту (ціна закупівлі завжди 0,
--- власник заповнює її пізніше в "Залишках")
-create or replace function add_material(p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0)
+create or replace function get_all_employees()
+returns table(id uuid, email text, role text, location_ids uuid[])
+language plpgsql security definer as $$
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  return query
+  select p.id, u.email::text, p.role,
+    coalesce(array_agg(pl.location_id) filter (where pl.location_id is not null), '{}')
+  from profiles p
+  join auth.users u on u.id = p.id
+  left join profile_locations pl on pl.profile_id = p.id
+  group by p.id, u.email, p.role
+  order by u.email;
+end;
+$$;
+
+create or replace function assign_employee_location(p_profile_id uuid, p_location_id uuid)
+returns void language plpgsql security definer as $$
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  insert into profile_locations (profile_id, location_id) values (p_profile_id, p_location_id)
+  on conflict do nothing;
+end;
+$$;
+
+create or replace function unassign_employee_location(p_profile_id uuid, p_location_id uuid)
+returns void language plpgsql security definer as $$
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  delete from profile_locations where profile_id = p_profile_id and location_id = p_location_id;
+end;
+$$;
+
+create or replace function set_employee_role(p_profile_id uuid, p_role text)
+returns void language plpgsql security definer as $$
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  update profiles set role = p_role where id = p_profile_id;
+end;
+$$;
+
+-- =========================================================
+-- Функції для роботи зі складом (з урахуванням конкретного магазину)
+-- =========================================================
+
+create or replace function deduct_stock_for_bouquet(p_bouquet_id uuid, p_qty numeric, p_location_id uuid)
+returns void as $$
+begin
+  insert into stock_levels (location_id, material_id, quantity)
+  select p_location_id, bi.material_id, -(bi.quantity * p_qty)
+  from bouquet_items bi
+  where bi.bouquet_id = p_bouquet_id
+  on conflict (location_id, material_id)
+  do update set quantity = stock_levels.quantity - (
+    select bi2.quantity from bouquet_items bi2
+    where bi2.bouquet_id = p_bouquet_id and bi2.material_id = excluded.material_id
+  ) * p_qty, updated_at = now();
+end;
+$$ language plpgsql security definer;
+
+create or replace function deduct_material_stock(p_material_id uuid, p_qty numeric, p_location_id uuid)
+returns void as $$
+begin
+  insert into stock_levels (location_id, material_id, quantity)
+  values (p_location_id, p_material_id, -p_qty)
+  on conflict (location_id, material_id)
+  do update set quantity = stock_levels.quantity - p_qty, updated_at = now();
+end;
+$$ language plpgsql security definer;
+
+-- Безпечний перегляд складу для продавця (для конкретного магазину), жодного стовпця з ціною закупівлі
+create or replace function get_materials_catalog(p_location_id uuid)
+returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric)
+language sql security definer stable as $$
+  select m.id, m.name, m.unit,
+    coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price
+  from materials m
+  left join stock_levels sl on sl.material_id = m.id and sl.location_id = p_location_id
+  order by m.name;
+$$;
+
+create or replace function add_material(
+  p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0, p_location_id uuid default null
+)
 returns uuid
 language plpgsql security definer as $$
 declare
   new_id uuid;
 begin
-  insert into materials (name, unit, quantity, min_quantity, cost_price)
-  values (p_name, p_unit, p_quantity, p_min_quantity, 0)
+  insert into materials (name, unit, cost_price, sale_price)
+  values (p_name, p_unit, 0, 0)
   returning id into new_id;
+
+  if p_location_id is not null then
+    insert into stock_levels (location_id, material_id, quantity, min_quantity)
+    values (p_location_id, new_id, p_quantity, p_min_quantity);
+  end if;
+
   return new_id;
 end;
 $$;
 
--- Продавець може поповнити залишок існуючої позиції, не бачачи й не змінюючи ціну
-create or replace function restock_material(p_material_id uuid, p_add_quantity numeric)
+create or replace function restock_material(p_material_id uuid, p_add_quantity numeric, p_location_id uuid)
 returns void
 language plpgsql security definer as $$
 begin
-  update materials
-  set quantity = quantity + p_add_quantity, updated_at = now()
-  where id = p_material_id;
+  insert into stock_levels (location_id, material_id, quantity)
+  values (p_location_id, p_material_id, p_add_quantity)
+  on conflict (location_id, material_id)
+  do update set quantity = stock_levels.quantity + excluded.quantity, updated_at = now();
 end;
 $$;
 
--- Фіксує собівартість позицій чека одразу після продажу (за цінами на ЦЮ мить).
--- Продавець викликає цю функцію після оформлення продажу, але сама вона
--- ніколи не повертає жодних цін клієнту — лише записує їх у базу.
+-- Фіксує собівартість позицій чека одразу після продажу (за цінами на ЦЮ мить)
 create or replace function finalize_sale_costs(p_sale_id uuid)
 returns void
 language plpgsql security definer as $$
@@ -287,16 +388,11 @@ begin
 end;
 $$;
 
--- Безпечна історія продажів для каси (без собівартості) — доступна і продавцю, і власнику
-create or replace function get_recent_sales(p_limit int default 15)
+-- Безпечна історія продажів для каси (без собівартості), можна відфільтрувати по магазину
+create or replace function get_recent_sales(p_location_id uuid default null, p_limit int default 15)
 returns table(
-  id uuid,
-  sale_date timestamptz,
-  total_amount numeric,
-  payment_method text,
-  order_channel text,
-  external_order_ref text,
-  items_summary text
+  id uuid, sale_date timestamptz, total_amount numeric, payment_method text,
+  order_channel text, external_order_ref text, items_summary text
 )
 language sql security definer stable as $$
   select
@@ -307,79 +403,74 @@ language sql security definer stable as $$
      left join materials m on m.id = si.material_id
      where si.sale_id = s.id) as items_summary
   from sales s
+  where p_location_id is null or s.location_id = p_location_id
   order by s.sale_date desc
   limit p_limit;
 $$;
-create or replace function get_sales_report(p_from timestamptz, p_to timestamptz)
+
+-- =========================================================
+-- Звіти (лише власник), з можливістю відфільтрувати по магазину
+-- =========================================================
+create or replace function get_sales_report(p_from timestamptz, p_to timestamptz, p_location_id uuid default null)
 returns table(revenue numeric, cost numeric, profit numeric, orders_count bigint)
 language plpgsql security definer as $$
 begin
-  if not is_owner() then
-    raise exception 'access denied';
-  end if;
-
+  if not is_owner() then raise exception 'access denied'; end if;
   return query
   select
-    coalesce((select sum(total_amount) from sales where sale_date between p_from and p_to), 0) as revenue,
+    coalesce((select sum(total_amount) from sales
+              where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id)), 0),
     coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
-              where s.sale_date between p_from and p_to), 0) as cost,
-    coalesce((select sum(total_amount) from sales where sale_date between p_from and p_to), 0)
+              where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)), 0),
+    coalesce((select sum(total_amount) from sales
+              where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id)), 0)
       - coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
-                  where s.sale_date between p_from and p_to), 0) as profit,
-    (select count(*) from sales where sale_date between p_from and p_to) as orders_count;
+                  where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)), 0),
+    (select count(*) from sales
+     where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id));
 end;
 $$;
 
-create or replace function get_daily_sales(p_from timestamptz, p_to timestamptz)
+create or replace function get_daily_sales(p_from timestamptz, p_to timestamptz, p_location_id uuid default null)
 returns table(day date, revenue numeric, cost numeric, profit numeric, orders_count bigint)
 language plpgsql security definer as $$
 begin
-  if not is_owner() then
-    raise exception 'access denied';
-  end if;
-
+  if not is_owner() then raise exception 'access denied'; end if;
   return query
   with daily_revenue as (
     select sale_date::date as day, sum(total_amount) as revenue, count(*) as orders_count
     from sales
-    where sale_date between p_from and p_to
+    where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id)
     group by sale_date::date
   ),
   daily_cost as (
     select s.sale_date::date as day, sum(si.cost_at_sale) as cost
     from sale_items si
     join sales s on s.id = si.sale_id
-    where s.sale_date between p_from and p_to
+    where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)
     group by s.sale_date::date
   )
-  select
-    dr.day,
-    dr.revenue,
-    coalesce(dc.cost, 0) as cost,
-    dr.revenue - coalesce(dc.cost, 0) as profit,
-    dr.orders_count
+  select dr.day, dr.revenue, coalesce(dc.cost, 0), dr.revenue - coalesce(dc.cost, 0), dr.orders_count
   from daily_revenue dr
   left join daily_cost dc on dc.day = dr.day
   order by dr.day desc;
 end;
 $$;
 
-create or replace function get_top_bouquets(p_from timestamptz, p_to timestamptz, p_limit int default 5)
+create or replace function get_top_bouquets(p_from timestamptz, p_to timestamptz, p_limit int default 5, p_location_id uuid default null)
 returns table(name text, qty numeric, revenue numeric)
 language plpgsql security definer as $$
 begin
-  if not is_owner() then
-    raise exception 'access denied';
-  end if;
-
+  if not is_owner() then raise exception 'access denied'; end if;
   return query
-  select b.name, sum(si.quantity) as qty, sum(si.quantity * si.price) as revenue
+  select b.name, sum(si.quantity), sum(si.quantity * si.price)
   from sale_items si
   join sales s on s.id = si.sale_id
   join bouquets b on b.id = si.bouquet_id
   where s.sale_date between p_from and p_to and si.bouquet_id is not null
+    and (p_location_id is null or s.location_id = p_location_id)
   group by b.name
-  order by qty desc
+  order by 2 desc
   limit p_limit;
 end;
 $$;

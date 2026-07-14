@@ -3,46 +3,65 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
+import { getCurrentLocationId } from '@/lib/location';
 
 export default function AssortmentPage() {
   const [materials, setMaterials] = useState([]);
+  const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0 });
   const [restockAmounts, setRestockAmounts] = useState({});
   const [message, setMessage] = useState('');
 
-  async function loadMaterials() {
+  async function loadMaterials(locId) {
     setLoading(true);
-    const { data, error } = await supabase.rpc('get_materials_catalog');
+    const { data, error } = await supabase.rpc('get_materials_catalog', { p_location_id: locId });
     if (!error) setMaterials(data || []);
     setLoading(false);
   }
 
   useEffect(() => {
-    loadMaterials();
+    const locId = getCurrentLocationId();
+    setLocationId(locId);
+    if (locId) loadMaterials(locId);
+    else setLoading(false);
   }, []);
 
   async function handleAdd(e) {
     e.preventDefault();
+    if (!locationId) return;
     const { error } = await supabase.rpc('add_material', {
       p_name: newItem.name,
       p_unit: newItem.unit,
       p_quantity: Number(newItem.quantity),
       p_min_quantity: Number(newItem.min_quantity),
+      p_location_id: locationId,
     });
     if (!error) {
       setNewItem({ name: '', unit: 'шт', quantity: 0, min_quantity: 0 });
       setMessage('Додано.');
-      loadMaterials();
+      loadMaterials(locationId);
     }
   }
 
   async function handleRestock(materialId) {
     const amount = Number(restockAmounts[materialId] || 0);
-    if (!amount) return;
-    await supabase.rpc('restock_material', { p_material_id: materialId, p_add_quantity: amount });
+    if (!amount || !locationId) return;
+    await supabase.rpc('restock_material', {
+      p_material_id: materialId,
+      p_add_quantity: amount,
+      p_location_id: locationId,
+    });
     setRestockAmounts({ ...restockAmounts, [materialId]: '' });
-    loadMaterials();
+    loadMaterials(locationId);
+  }
+
+  if (!locationId && !loading) {
+    return (
+      <ProtectedPage>
+        <p className="text-sage">Оберіть магазин у шапці зверху.</p>
+      </ProtectedPage>
+    );
   }
 
   return (
@@ -80,17 +99,14 @@ export default function AssortmentPage() {
               className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
             />
           </div>
-          <button
-            type="submit"
-            className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90"
-          >
+          <button type="submit" className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90">
             Додати
           </button>
         </form>
         {message && <p className="text-leaf text-sm mt-2">{message}</p>}
       </div>
 
-      <h2 className="font-display text-lg text-ink mb-3">Поповнити залишки</h2>
+      <h2 className="font-display text-lg text-ink mb-3">Поповнити залишки тут</h2>
       {loading ? (
         <p className="text-sage">Завантаження...</p>
       ) : materials.length === 0 ? (
@@ -122,17 +138,12 @@ export default function AssortmentPage() {
                         type="number"
                         step="0.01"
                         value={restockAmounts[m.id] || ''}
-                        onChange={(e) =>
-                          setRestockAmounts({ ...restockAmounts, [m.id]: e.target.value })
-                        }
+                        onChange={(e) => setRestockAmounts({ ...restockAmounts, [m.id]: e.target.value })}
                         className="w-24 border border-sage/40 rounded px-2 py-1 bg-white"
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleRestock(m.id)}
-                        className="text-forest hover:underline"
-                      >
+                      <button onClick={() => handleRestock(m.id)} className="text-forest hover:underline">
                         Поповнити
                       </button>
                     </td>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
+import { getCurrentLocationId } from '@/lib/location';
 
 const CHANNELS = [
   { value: 'store', label: 'На місці' },
@@ -22,17 +23,18 @@ export default function SalesPage() {
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [externalOrderRef, setExternalOrderRef] = useState('');
+  const [locationId, setLocationId] = useState(null);
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  async function loadAll() {
+  async function loadAll(locId) {
     setLoading(true);
     const [bRes, mRes, sRes] = await Promise.all([
       supabase.from('bouquets').select('id, name, sale_price').eq('is_active', true).order('name'),
-      supabase.rpc('get_materials_catalog'),
-      supabase.rpc('get_recent_sales', { p_limit: 15 }),
+      supabase.rpc('get_materials_catalog', { p_location_id: locId }),
+      supabase.rpc('get_recent_sales', { p_location_id: locId, p_limit: 15 }),
     ]);
     if (!bRes.error) setBouquets(bRes.data || []);
     if (!mRes.error) setMaterials(mRes.data || []);
@@ -41,7 +43,10 @@ export default function SalesPage() {
   }
 
   useEffect(() => {
-    loadAll();
+    const locId = getCurrentLocationId();
+    setLocationId(locId);
+    if (locId) loadAll(locId);
+    else setLoading(false);
   }, []);
 
   function addToCart(type, item) {
@@ -86,6 +91,7 @@ export default function SalesPage() {
     const { data: sale, error: saleError } = await supabase
       .from('sales')
       .insert({
+        location_id: locationId,
         total_amount: total,
         payment_method: isPlatform ? orderChannel : paymentMethod,
         order_channel: orderChannel,
@@ -121,11 +127,13 @@ export default function SalesPage() {
         await supabase.rpc('deduct_stock_for_bouquet', {
           p_bouquet_id: c.id,
           p_qty: Number(c.quantity),
+          p_location_id: locationId,
         });
       } else {
         await supabase.rpc('deduct_material_stock', {
           p_material_id: c.id,
           p_qty: Number(c.quantity),
+          p_location_id: locationId,
         });
       }
     }
@@ -134,7 +142,7 @@ export default function SalesPage() {
     resetOrderExtras();
     setMessage('Продаж оформлено, склад оновлено.');
     setSaving(false);
-    loadAll();
+    loadAll(locationId);
   }
 
   return (
@@ -142,7 +150,9 @@ export default function SalesPage() {
       <h1 className="font-display text-2xl text-forest mb-1">Продажі</h1>
       <div className="stem-divider w-16 mb-8" />
 
-      {loading ? (
+      {!locationId && !loading ? (
+        <p className="text-sage">Оберіть магазин у шапці зверху.</p>
+      ) : loading ? (
         <p className="text-sage">Завантаження...</p>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

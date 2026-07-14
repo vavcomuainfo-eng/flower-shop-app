@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
+import { getCurrentLocationId } from '@/lib/location';
 
 const emptyForm = {
   id: null,
@@ -18,30 +19,36 @@ const emptyForm = {
 export default function InventoryPage() {
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
 
-  async function loadMaterials() {
+  async function loadMaterials(locId) {
     setLoading(true);
     const { data, error } = await supabase
       .from('materials')
-      .select('*, suppliers(name)')
+      .select('*, suppliers(name), stock_levels(quantity, min_quantity, location_id)')
       .order('name', { ascending: true });
-    if (!error) setMaterials(data || []);
+    if (!error) {
+      const withStock = (data || []).map((m) => {
+        const sl = m.stock_levels?.find((s) => s.location_id === locId);
+        return { ...m, quantity: sl?.quantity || 0, min_quantity: sl?.min_quantity || 0 };
+      });
+      setMaterials(withStock);
+    }
     setLoading(false);
   }
 
   async function loadSuppliers() {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .select('id, name')
-      .order('name', { ascending: true });
+    const { data, error } = await supabase.from('suppliers').select('id, name').order('name');
     if (!error) setSuppliers(data || []);
   }
 
   useEffect(() => {
-    loadMaterials();
+    const locId = getCurrentLocationId();
+    setLocationId(locId);
+    if (locId) loadMaterials(locId);
     loadSuppliers();
   }, []);
 
@@ -57,30 +64,53 @@ export default function InventoryPage() {
 
   async function handleSave(e) {
     e.preventDefault();
-    const payload = {
+    const materialPayload = {
       name: form.name,
       unit: form.unit,
-      quantity: Number(form.quantity),
-      min_quantity: Number(form.min_quantity),
       cost_price: Number(form.cost_price),
       sale_price: Number(form.sale_price),
       supplier_id: form.supplier_id || null,
       updated_at: new Date().toISOString(),
     };
 
-    if (form.id) {
-      await supabase.from('materials').update(payload).eq('id', form.id);
+    let materialId = form.id;
+    if (materialId) {
+      await supabase.from('materials').update(materialPayload).eq('id', materialId);
     } else {
-      await supabase.from('materials').insert(payload);
+      const { data, error } = await supabase.from('materials').insert(materialPayload).select().single();
+      if (error || !data) return;
+      materialId = data.id;
     }
+
+    if (locationId) {
+      await supabase.from('stock_levels').upsert(
+        {
+          location_id: locationId,
+          material_id: materialId,
+          quantity: Number(form.quantity),
+          min_quantity: Number(form.min_quantity),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'location_id,material_id' }
+      );
+    }
+
     setShowForm(false);
-    loadMaterials();
+    loadMaterials(locationId);
   }
 
   async function handleDelete(id) {
-    if (!confirm('Видалити цю позицію зі складу?')) return;
+    if (!confirm('Видалити цю позицію зі складу? Це вплине на всі магазини.')) return;
     await supabase.from('materials').delete().eq('id', id);
-    loadMaterials();
+    loadMaterials(locationId);
+  }
+
+  if (!locationId && !loading) {
+    return (
+      <ProtectedPage ownerOnly>
+        <p className="text-sage">Оберіть магазин у шапці зверху.</p>
+      </ProtectedPage>
+    );
   }
 
   return (
@@ -95,18 +125,21 @@ export default function InventoryPage() {
         </button>
       </div>
       <div className="stem-divider w-16 mb-8" />
+      <p className="text-xs text-sage mb-4">
+        Показано залишки для обраного зараз магазину (перемикач у шапці). Назва, ціни й постачальник — спільні на всю мережу.
+      </p>
 
       {loading ? (
         <p className="text-sage">Завантаження...</p>
       ) : materials.length === 0 ? (
-        <p className="text-sage">Тут ще нічого немає. Додайте першу квітку чи матеріал.</p>
+        <p className="text-sage">Тут ще нічого немає. Додайте першу квітку чи товар.</p>
       ) : (
         <div className="bg-white border border-sage/20 rounded overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium">Назва</th>
-                <th className="px-4 py-3 font-medium">Кількість</th>
+                <th className="px-4 py-3 font-medium">Кількість тут</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
                 <th className="px-4 py-3 font-medium">Закупівельна ціна</th>
                 <th className="px-4 py-3 font-medium">Роздрібна ціна</th>
@@ -121,9 +154,7 @@ export default function InventoryPage() {
                   <tr key={m.id} className="border-b border-sage/10 last:border-0">
                     <td className="px-4 py-3">{m.name}</td>
                     <td className="px-4 py-3">
-                      <span className={low ? 'text-amber font-medium' : 'text-ink'}>
-                        {m.quantity}
-                      </span>
+                      <span className={low ? 'text-amber font-medium' : 'text-ink'}>{m.quantity}</span>
                       {low && <span className="text-amber text-xs ml-2">мало</span>}
                     </td>
                     <td className="px-4 py-3 text-sage">{m.unit}</td>
@@ -148,7 +179,7 @@ export default function InventoryPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-ink/30 flex items-center justify-center px-6 z-10">
-          <div className="bg-paper rounded max-w-md w-full p-6 border border-sage/20">
+          <div className="bg-paper rounded max-w-md w-full p-6 border border-sage/20 max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-xl text-forest mb-4">
               {form.id ? 'Редагувати позицію' : 'Нова позиція'}
             </h2>
@@ -164,7 +195,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-sage mb-1">Кількість</label>
+                  <label className="block text-sm text-sage mb-1">Кількість тут</label>
                   <input
                     type="number"
                     step="0.01"
@@ -184,7 +215,7 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-sage mb-1">Мінімум (поріг)</label>
+                  <label className="block text-sm text-sage mb-1">Мінімум тут (поріг)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -206,7 +237,7 @@ export default function InventoryPage() {
               </div>
               <div>
                 <label className="block text-sm text-sage mb-1">
-                  Роздрібна ціна <span className="text-sage">(фіксована ціна на касі за одиницю)</span>
+                  Роздрібна ціна <span className="text-sage">(фіксована на касі, однакова у всіх магазинах)</span>
                 </label>
                 <input
                   type="number"
@@ -230,25 +261,13 @@ export default function InventoryPage() {
                     </option>
                   ))}
                 </select>
-                {suppliers.length === 0 && (
-                  <p className="text-xs text-sage mt-1">
-                    Немає жодного постачальника — додайте на сторінці "Постачальники".
-                  </p>
-                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="text-sage text-sm px-4 py-2"
-                >
+                <button type="button" onClick={() => setShowForm(false)} className="text-sage text-sm px-4 py-2">
                   Скасувати
                 </button>
-                <button
-                  type="submit"
-                  className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90"
-                >
+                <button type="submit" className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90">
                   Зберегти
                 </button>
               </div>
