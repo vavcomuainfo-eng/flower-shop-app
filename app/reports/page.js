@@ -113,7 +113,7 @@ export default function ReportsPage() {
         <p className="text-sage">Завантаження...</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-10">
             <div className="bg-white border border-sage/20 rounded p-5">
               <p className="text-sage text-sm mb-1">Виручка</p>
               <p className="font-display text-2xl text-ink">{(summary?.revenue || 0).toFixed(0)} ₴</p>
@@ -121,6 +121,10 @@ export default function ReportsPage() {
             <div className="bg-white border border-sage/20 rounded p-5">
               <p className="text-sage text-sm mb-1">Собівартість</p>
               <p className="font-display text-2xl text-ink">{(summary?.cost || 0).toFixed(0)} ₴</p>
+            </div>
+            <div className="bg-white border border-sage/20 rounded p-5">
+              <p className="text-sage text-sm mb-1">Списання</p>
+              <p className="font-display text-2xl text-rose">{(summary?.write_offs || 0).toFixed(0)} ₴</p>
             </div>
             <div className="bg-white border border-sage/20 rounded p-5">
               <p className="text-sage text-sm mb-1">Прибуток</p>
@@ -139,7 +143,7 @@ export default function ReportsPage() {
           </div>
 
           <p className="text-xs text-sage -mt-8 mb-10">
-            Собівартість рахується за поточними закупівельними цінами матеріалів (не історичними на момент продажу).
+            Прибуток = виручка − собівартість проданого − списання. Собівартість фіксується в момент продажу/списання.
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -154,6 +158,7 @@ export default function ReportsPage() {
                       <tr className="text-left text-sage border-b border-sage/20">
                         <th className="px-4 py-2 font-medium">Дата</th>
                         <th className="px-4 py-2 font-medium">Виручка</th>
+                        <th className="px-4 py-2 font-medium">Списання</th>
                         <th className="px-4 py-2 font-medium">Прибуток</th>
                         <th className="px-4 py-2 font-medium">Замовлень</th>
                       </tr>
@@ -163,6 +168,7 @@ export default function ReportsPage() {
                         <tr key={d.day} className="border-b border-sage/10 last:border-0">
                           <td className="px-4 py-2">{new Date(d.day).toLocaleDateString('uk-UA')}</td>
                           <td className="px-4 py-2">{Number(d.revenue).toFixed(0)} ₴</td>
+                          <td className="px-4 py-2 text-rose">{Number(d.write_offs || 0).toFixed(0)} ₴</td>
                           <td className={`px-4 py-2 ${Number(d.profit) >= 0 ? 'text-leaf' : 'text-rose'}`}>
                             {Number(d.profit).toFixed(0)} ₴
                           </td>

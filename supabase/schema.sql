@@ -161,6 +161,23 @@ create table if not exists transfer_items (
   quantity numeric not null
 );
 
+-- ---------- СПИСАННЯ (бій, зів'янення, брак) ----------
+create table if not exists write_offs (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid references locations(id) on delete set null,
+  write_off_date timestamptz default now(),
+  reason text not null default 'інше',
+  notes text
+);
+
+create table if not exists write_off_items (
+  id uuid primary key default gen_random_uuid(),
+  write_off_id uuid not null references write_offs(id) on delete cascade,
+  material_id uuid not null references materials(id) on delete restrict,
+  quantity numeric not null,
+  cost_at_writeoff numeric not null default 0
+);
+
 -- =========================================================
 -- Індекси
 -- =========================================================
@@ -173,6 +190,8 @@ create index if not exists idx_purchase_items_purchase on purchase_items(purchas
 create index if not exists idx_sales_location on sales(location_id);
 create index if not exists idx_purchases_location on purchases(location_id);
 create index if not exists idx_transfer_items_transfer on transfer_items(transfer_id);
+create index if not exists idx_write_off_items_write_off on write_off_items(write_off_id);
+create index if not exists idx_write_offs_location on write_offs(location_id);
 
 -- =========================================================
 -- Row Level Security
@@ -190,6 +209,8 @@ alter table locations enable row level security;
 alter table profile_locations enable row level security;
 alter table transfers enable row level security;
 alter table transfer_items enable row level security;
+alter table write_offs enable row level security;
+alter table write_off_items enable row level security;
 
 do $$
 declare
@@ -222,6 +243,11 @@ create policy "owner full access profile_locations" on profile_locations
 create policy "owner full access on transfers" on transfers
   for all using (is_owner()) with check (is_owner());
 create policy "owner full access on transfer_items" on transfer_items
+  for all using (is_owner()) with check (is_owner());
+
+create policy "owner full access on write_offs" on write_offs
+  for all using (is_owner()) with check (is_owner());
+create policy "owner full access on write_off_items" on write_off_items
   for all using (is_owner()) with check (is_owner());
 
 -- materials і stock_levels містять/пов'язані з цінами — прямий доступ лише власнику,
@@ -436,27 +462,32 @@ $$;
 -- Звіти (лише власник), з можливістю відфільтрувати по магазину
 -- =========================================================
 create or replace function get_sales_report(p_from timestamptz, p_to timestamptz, p_location_id uuid default null)
-returns table(revenue numeric, cost numeric, profit numeric, orders_count bigint)
+returns table(revenue numeric, cost numeric, write_offs numeric, profit numeric, orders_count bigint)
 language plpgsql security definer as $$
+declare
+  v_revenue numeric;
+  v_cost numeric;
+  v_write_offs numeric;
 begin
   if not is_owner() then raise exception 'access denied'; end if;
-  return query
-  select
-    coalesce((select sum(total_amount) from sales
-              where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id)), 0),
-    coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
-              where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)), 0),
-    coalesce((select sum(total_amount) from sales
-              where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id)), 0)
-      - coalesce((select sum(si.cost_at_sale) from sale_items si join sales s on s.id = si.sale_id
-                  where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)), 0),
-    (select count(*) from sales
-     where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id));
+
+  select coalesce(sum(total_amount), 0) into v_revenue from sales
+  where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id);
+
+  select coalesce(sum(si.cost_at_sale), 0) into v_cost from sale_items si join sales s on s.id = si.sale_id
+  where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id);
+
+  select coalesce(sum(woi.cost_at_writeoff), 0) into v_write_offs
+  from write_off_items woi join write_offs wo on wo.id = woi.write_off_id
+  where wo.write_off_date between p_from and p_to and (p_location_id is null or wo.location_id = p_location_id);
+
+  return query select v_revenue, v_cost, v_write_offs, v_revenue - v_cost - v_write_offs,
+    (select count(*) from sales where sale_date between p_from and p_to and (p_location_id is null or location_id = p_location_id));
 end;
 $$;
 
 create or replace function get_daily_sales(p_from timestamptz, p_to timestamptz, p_location_id uuid default null)
-returns table(day date, revenue numeric, cost numeric, profit numeric, orders_count bigint)
+returns table(day date, revenue numeric, cost numeric, write_offs numeric, profit numeric, orders_count bigint)
 language plpgsql security definer as $$
 begin
   if not is_owner() then raise exception 'access denied'; end if;
@@ -473,10 +504,19 @@ begin
     join sales s on s.id = si.sale_id
     where s.sale_date between p_from and p_to and (p_location_id is null or s.location_id = p_location_id)
     group by s.sale_date::date
+  ),
+  daily_writeoffs as (
+    select wo.write_off_date::date as day, sum(woi.cost_at_writeoff) as write_offs
+    from write_off_items woi
+    join write_offs wo on wo.id = woi.write_off_id
+    where wo.write_off_date between p_from and p_to and (p_location_id is null or wo.location_id = p_location_id)
+    group by wo.write_off_date::date
   )
-  select dr.day, dr.revenue, coalesce(dc.cost, 0), dr.revenue - coalesce(dc.cost, 0), dr.orders_count
+  select dr.day, dr.revenue, coalesce(dc.cost, 0), coalesce(dw.write_offs, 0),
+    dr.revenue - coalesce(dc.cost, 0) - coalesce(dw.write_offs, 0), dr.orders_count
   from daily_revenue dr
   left join daily_cost dc on dc.day = dr.day
+  left join daily_writeoffs dw on dw.day = dr.day
   order by dr.day desc;
 end;
 $$;
