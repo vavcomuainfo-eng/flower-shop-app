@@ -17,12 +17,14 @@ const ownerLinks = [
   { href: '/bouquets', label: 'Букети' },
   { href: '/reports', label: 'Звіти' },
   { href: '/sales', label: 'Продажі' },
+  { href: '/customers', label: 'Клієнти' },
   { href: '/locations', label: 'Магазини' },
 ];
 
 const sellerLinks = [
   { href: '/sales', label: 'Продажі' },
   { href: '/assortment', label: 'Асортимент' },
+  { href: '/customers', label: 'Клієнти' },
 ];
 
 export default function Nav() {

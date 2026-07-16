@@ -25,6 +25,9 @@ export default function SalesPage() {
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [externalOrderRef, setExternalOrderRef] = useState('');
   const [locationId, setLocationId] = useState(null);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,6 +74,37 @@ export default function SalesPage() {
     setCart((prev) => prev.filter((_, i) => i !== index));
   }
 
+  async function searchCustomers(q) {
+    setCustomerQuery(q);
+    setSelectedCustomer(null);
+    if (!q.trim()) {
+      setCustomerResults([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, name, phone')
+      .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
+      .limit(5);
+    if (!error) setCustomerResults(data || []);
+  }
+
+  function pickCustomer(c) {
+    setSelectedCustomer(c);
+    setCustomerQuery(c.name);
+    setCustomerResults([]);
+  }
+
+  async function quickAddCustomer() {
+    if (!customerQuery.trim()) return;
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({ name: customerQuery.trim() })
+      .select()
+      .single();
+    if (!error && data) pickCustomer(data);
+  }
+
   const isPlatform = orderChannel === 'glovo' || orderChannel === 'bolt';
   const itemsTotal = cart.reduce((sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 0), 0);
   const total = itemsTotal + (orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0);
@@ -93,6 +127,7 @@ export default function SalesPage() {
       .from('sales')
       .insert({
         location_id: locationId,
+        customer_id: selectedCustomer?.id || null,
         total_amount: total,
         payment_method: isPlatform ? orderChannel : paymentMethod,
         order_channel: orderChannel,
@@ -141,6 +176,9 @@ export default function SalesPage() {
 
     setCart([]);
     resetOrderExtras();
+    setCustomerQuery('');
+    setSelectedCustomer(null);
+    setCustomerResults([]);
     setMessage('Продаж оформлено, склад оновлено.');
     setSaving(false);
     loadAll(locationId);
@@ -256,6 +294,42 @@ export default function SalesPage() {
               )}
 
               <div className="border-t border-sage/20 mt-4 pt-4 space-y-3">
+                <div className="relative">
+                  <label className="block text-sm text-sage mb-1">Клієнт (необов'язково)</label>
+                  <input
+                    value={customerQuery}
+                    onChange={(e) => searchCustomers(e.target.value)}
+                    placeholder="Ім'я або телефон..."
+                    className="w-full border border-sage/40 rounded px-3 py-2 bg-white text-sm"
+                  />
+                  {selectedCustomer && (
+                    <p className="text-xs text-leaf mt-1">Обрано: {selectedCustomer.name}</p>
+                  )}
+                  {!selectedCustomer && customerResults.length > 0 && (
+                    <div className="absolute z-10 bg-white border border-sage/20 rounded mt-1 w-full shadow">
+                      {customerResults.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => pickCustomer(c)}
+                          className="block w-full text-left px-3 py-2 text-sm hover:bg-paper"
+                        >
+                          {c.name} {c.phone ? `· ${c.phone}` : ''}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!selectedCustomer && customerQuery.trim() && customerResults.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={quickAddCustomer}
+                      className="text-forest text-xs mt-1 hover:underline"
+                    >
+                      + додати нового клієнта "{customerQuery.trim()}"
+                    </button>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-sm text-sage mb-1">Спосіб продажу</label>
                   <div className="grid grid-cols-4 gap-1">

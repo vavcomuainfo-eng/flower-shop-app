@@ -126,10 +126,21 @@ create table if not exists purchase_items (
   unit_cost numeric not null
 );
 
+-- ---------- КЛІЄНТИ ----------
+create table if not exists customers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text,
+  email text,
+  notes text,
+  created_at timestamptz default now()
+);
+
 -- ---------- ПРОДАЖІ (каса, прив'язана до конкретного магазину) ----------
 create table if not exists sales (
   id uuid primary key default gen_random_uuid(),
   location_id uuid references locations(id) on delete set null,
+  customer_id uuid references customers(id) on delete set null,
   sale_date timestamptz default now(),
   total_amount numeric default 0,
   payment_method text default 'готівка',
@@ -214,6 +225,7 @@ alter table purchases enable row level security;
 alter table purchase_items enable row level security;
 alter table sales enable row level security;
 alter table sale_items enable row level security;
+alter table customers enable row level security;
 alter table locations enable row level security;
 alter table profile_locations enable row level security;
 alter table categories enable row level security;
@@ -226,7 +238,7 @@ do $$
 declare
   t text;
 begin
-  for t in select unnest(array['suppliers','bouquets','bouquet_items','sales'])
+  for t in select unnest(array['suppliers','bouquets','bouquet_items','sales','customers'])
   loop
     execute format(
       'create policy "authenticated full access" on %I
