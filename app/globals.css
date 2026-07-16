@@ -5,8 +5,8 @@
 @tailwind utilities;
 
 body {
-  background-color: #F6F7F2;
-  color: #1F2A24;
+  background-color: #FFFFFF;
+  color: #1A1A1A;
   font-family: 'Inter', sans-serif;
 }
 
@@ -17,6 +17,6 @@ body {
 /* "Стебло" — тонка вигнута лінія-роздільник, фірмовий елемент */
 .stem-divider {
   height: 2px;
-  background: linear-gradient(90deg, #4C7A57 0%, transparent 100%);
+  background: linear-gradient(90deg, #B91C1C 0%, transparent 100%);
   border-radius: 2px;
 }

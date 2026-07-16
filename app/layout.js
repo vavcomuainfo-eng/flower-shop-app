@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Квітковий облік',
+  title: 'BaB',
   description: 'Облік залишків, букетів, продажів і постачальників',
 };
 

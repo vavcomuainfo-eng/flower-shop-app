@@ -14,6 +14,8 @@ const ownerLinks = [
   { href: '/purchases', label: 'Поповнення складу' },
   { href: '/transfers', label: 'Переміщення' },
   { href: '/writeoffs', label: 'Списання' },
+  { href: '/stocktake', label: 'Інвентаризація' },
+  { href: '/repricing', label: 'Переоцінка' },
   { href: '/bouquets', label: 'Букети' },
   { href: '/reports', label: 'Звіти' },
   { href: '/sales', label: 'Продажі' },
@@ -71,7 +73,7 @@ export default function Nav() {
     <header className="border-b border-sage/30 bg-paper">
       <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
-          <div className="font-display text-xl text-forest">Квітковий облік</div>
+          <div className="font-display text-xl text-forest">BaB</div>
           {locations.length > 0 && (
             <select
               value={locationId || ''}

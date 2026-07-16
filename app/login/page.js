@@ -31,7 +31,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-paper px-6">
       <div className="w-full max-w-sm">
-        <h1 className="font-display text-3xl text-forest mb-1">Квітковий облік</h1>
+        <h1 className="font-display text-3xl text-forest mb-1">BaB</h1>
         <div className="stem-divider w-16 mb-8" />
 
         <form onSubmit={handleSubmit} className="space-y-4">

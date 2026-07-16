@@ -198,6 +198,35 @@ create table if not exists write_off_items (
   cost_at_writeoff numeric not null default 0
 );
 
+-- ---------- ПЕРЕОЦІНКА (журнал зміни цін) ----------
+create table if not exists price_history (
+  id uuid primary key default gen_random_uuid(),
+  material_id uuid not null references materials(id) on delete cascade,
+  old_cost_price numeric,
+  new_cost_price numeric,
+  old_sale_price numeric,
+  new_sale_price numeric,
+  note text,
+  changed_at timestamptz default now()
+);
+
+-- ---------- ІНВЕНТАРИЗАЦІЯ ----------
+create table if not exists stocktakes (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid references locations(id) on delete set null,
+  stocktake_date timestamptz default now(),
+  notes text
+);
+
+create table if not exists stocktake_items (
+  id uuid primary key default gen_random_uuid(),
+  stocktake_id uuid not null references stocktakes(id) on delete cascade,
+  material_id uuid not null references materials(id) on delete restrict,
+  expected_quantity numeric not null default 0,
+  actual_quantity numeric not null default 0,
+  cost_at_stocktake numeric not null default 0
+);
+
 -- =========================================================
 -- Індекси
 -- =========================================================
@@ -212,6 +241,8 @@ create index if not exists idx_purchases_location on purchases(location_id);
 create index if not exists idx_transfer_items_transfer on transfer_items(transfer_id);
 create index if not exists idx_write_off_items_write_off on write_off_items(write_off_id);
 create index if not exists idx_write_offs_location on write_offs(location_id);
+create index if not exists idx_price_history_material on price_history(material_id);
+create index if not exists idx_stocktake_items_stocktake on stocktake_items(stocktake_id);
 
 -- =========================================================
 -- Row Level Security
@@ -233,6 +264,9 @@ alter table transfers enable row level security;
 alter table transfer_items enable row level security;
 alter table write_offs enable row level security;
 alter table write_off_items enable row level security;
+alter table price_history enable row level security;
+alter table stocktakes enable row level security;
+alter table stocktake_items enable row level security;
 
 do $$
 declare
@@ -279,6 +313,13 @@ create policy "owner full access on transfer_items" on transfer_items
 create policy "owner full access on write_offs" on write_offs
   for all using (is_owner()) with check (is_owner());
 create policy "owner full access on write_off_items" on write_off_items
+  for all using (is_owner()) with check (is_owner());
+
+create policy "owner full access on price_history" on price_history
+  for all using (is_owner()) with check (is_owner());
+create policy "owner full access on stocktakes" on stocktakes
+  for all using (is_owner()) with check (is_owner());
+create policy "owner full access on stocktake_items" on stocktake_items
   for all using (is_owner()) with check (is_owner());
 
 -- materials і stock_levels містять/пов'язані з цінами — прямий доступ лише власнику,
