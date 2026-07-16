@@ -145,6 +145,22 @@ create table if not exists sale_items (
   check (bouquet_id is not null or material_id is not null)
 );
 
+-- ---------- ПЕРЕМІЩЕННЯ МІЖ МАГАЗИНАМИ/СКЛАДОМ ----------
+create table if not exists transfers (
+  id uuid primary key default gen_random_uuid(),
+  from_location_id uuid references locations(id) on delete set null,
+  to_location_id uuid references locations(id) on delete set null,
+  transfer_date timestamptz default now(),
+  notes text
+);
+
+create table if not exists transfer_items (
+  id uuid primary key default gen_random_uuid(),
+  transfer_id uuid not null references transfers(id) on delete cascade,
+  material_id uuid not null references materials(id) on delete restrict,
+  quantity numeric not null
+);
+
 -- =========================================================
 -- Індекси
 -- =========================================================
@@ -156,6 +172,7 @@ create index if not exists idx_sale_items_sale on sale_items(sale_id);
 create index if not exists idx_purchase_items_purchase on purchase_items(purchase_id);
 create index if not exists idx_sales_location on sales(location_id);
 create index if not exists idx_purchases_location on purchases(location_id);
+create index if not exists idx_transfer_items_transfer on transfer_items(transfer_id);
 
 -- =========================================================
 -- Row Level Security
@@ -171,6 +188,8 @@ alter table sales enable row level security;
 alter table sale_items enable row level security;
 alter table locations enable row level security;
 alter table profile_locations enable row level security;
+alter table transfers enable row level security;
+alter table transfer_items enable row level security;
 
 do $$
 declare
@@ -198,6 +217,11 @@ create policy "owner delete locations" on locations
 
 -- Прив'язка працівників до магазинів — керує лише власник (через функції нижче)
 create policy "owner full access profile_locations" on profile_locations
+  for all using (is_owner()) with check (is_owner());
+
+create policy "owner full access on transfers" on transfers
+  for all using (is_owner()) with check (is_owner());
+create policy "owner full access on transfer_items" on transfer_items
   for all using (is_owner()) with check (is_owner());
 
 -- materials і stock_levels містять/пов'язані з цінами — прямий доступ лише власнику,

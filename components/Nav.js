@@ -12,6 +12,7 @@ const ownerLinks = [
   { href: '/inventory', label: 'Залишки' },
   { href: '/suppliers', label: 'Постачальники' },
   { href: '/purchases', label: 'Поповнення складу' },
+  { href: '/transfers', label: 'Переміщення' },
   { href: '/bouquets', label: 'Букети' },
   { href: '/reports', label: 'Звіти' },
   { href: '/sales', label: 'Продажі' },
