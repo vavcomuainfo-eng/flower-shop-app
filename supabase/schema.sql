@@ -60,11 +60,20 @@ create table if not exists suppliers (
   created_at timestamptz default now()
 );
 
+-- ---------- КАТЕГОРІЇ ТОВАРІВ ----------
+create table if not exists categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
 -- ---------- МАТЕРІАЛИ / ТОВАРИ (єдиний каталог на всю мережу) ----------
 create table if not exists materials (
   id uuid primary key default gen_random_uuid(),
   name text not null,                 -- напр. "Троянда червона 60см"
   unit text not null default 'шт',    -- шт, м, уп тощо
+  category_id uuid references categories(id) on delete set null,
+  image_url text,
   cost_price numeric not null default 0,   -- закупівельна ціна за одиницю (бачить лише власник)
   sale_price numeric not null default 0,   -- фіксована роздрібна ціна для прямого продажу (бачить каса)
   supplier_id uuid references suppliers(id) on delete set null,
@@ -207,6 +216,7 @@ alter table sales enable row level security;
 alter table sale_items enable row level security;
 alter table locations enable row level security;
 alter table profile_locations enable row level security;
+alter table categories enable row level security;
 alter table transfers enable row level security;
 alter table transfer_items enable row level security;
 alter table write_offs enable row level security;
@@ -239,6 +249,15 @@ create policy "owner delete locations" on locations
 -- Прив'язка працівників до магазинів — керує лише власник (через функції нижче)
 create policy "owner full access profile_locations" on profile_locations
   for all using (is_owner()) with check (is_owner());
+
+create policy "authenticated can view categories" on categories
+  for select using (auth.role() = 'authenticated');
+create policy "owner manage categories" on categories
+  for insert with check (is_owner());
+create policy "owner update categories" on categories
+  for update using (is_owner()) with check (is_owner());
+create policy "owner delete categories" on categories
+  for delete using (is_owner());
 
 create policy "owner full access on transfers" on transfers
   for all using (is_owner()) with check (is_owner());
@@ -350,6 +369,22 @@ end;
 $$;
 
 -- =========================================================
+-- Сховище для фото товарів
+-- =========================================================
+insert into storage.buckets (id, name, public)
+values ('product-images', 'product-images', true)
+on conflict (id) do nothing;
+
+create policy "Public read product images" on storage.objects
+  for select using (bucket_id = 'product-images');
+create policy "Owner upload product images" on storage.objects
+  for insert with check (bucket_id = 'product-images' and is_owner());
+create policy "Owner update product images" on storage.objects
+  for update using (bucket_id = 'product-images' and is_owner());
+create policy "Owner delete product images" on storage.objects
+  for delete using (bucket_id = 'product-images' and is_owner());
+
+-- =========================================================
 -- Функції для роботи зі складом (з урахуванням конкретного магазину)
 -- =========================================================
 
@@ -380,25 +415,31 @@ $$ language plpgsql security definer;
 
 -- Безпечний перегляд складу для продавця (для конкретного магазину), жодного стовпця з ціною закупівлі
 create or replace function get_materials_catalog(p_location_id uuid)
-returns table(id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric)
+returns table(
+  id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric,
+  category_name text, image_url text
+)
 language sql security definer stable as $$
   select m.id, m.name, m.unit,
-    coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price
+    coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price,
+    c.name, m.image_url
   from materials m
   left join stock_levels sl on sl.material_id = m.id and sl.location_id = p_location_id
+  left join categories c on c.id = m.category_id
   order by m.name;
 $$;
 
 create or replace function add_material(
-  p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0, p_location_id uuid default null
+  p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0,
+  p_location_id uuid default null, p_category_id uuid default null
 )
 returns uuid
 language plpgsql security definer as $$
 declare
   new_id uuid;
 begin
-  insert into materials (name, unit, cost_price, sale_price)
-  values (p_name, p_unit, 0, 0)
+  insert into materials (name, unit, cost_price, sale_price, category_id)
+  values (p_name, p_unit, 0, 0, p_category_id)
   returning id into new_id;
 
   if p_location_id is not null then

@@ -15,6 +15,7 @@ const CHANNELS = [
 export default function SalesPage() {
   const [bouquets, setBouquets] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState('Усі');
   const [cart, setCart] = useState([]); // [{type, id, name, price, quantity}] — ціна завжди фіксована
   const [paymentMethod, setPaymentMethod] = useState('готівка');
   const [orderChannel, setOrderChannel] = useState('store');
@@ -183,21 +184,43 @@ export default function SalesPage() {
               {materials.length === 0 ? (
                 <p className="text-sage text-sm">Немає матеріалів на складі.</p>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {materials.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => addToCart('material', m)}
-                      disabled={!m.sale_price}
-                      className="bg-white border border-sage/20 rounded p-3 text-left hover:border-forest transition-colors disabled:opacity-40"
-                    >
-                      <p className="text-sm text-ink">{m.name}</p>
-                      <p className="text-xs text-sage">
-                        {m.sale_price ? `${m.sale_price} ₴` : 'ціну ще не задано'} · залишок: {m.quantity} {m.unit}
-                      </p>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {['Усі', ...new Set(materials.map((m) => m.category_name).filter(Boolean))].map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setCategoryFilter(cat)}
+                        className={`text-xs px-3 py-1.5 rounded-full border ${
+                          categoryFilter === cat
+                            ? 'bg-forest text-white border-forest'
+                            : 'bg-white text-sage border-sage/40'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {materials
+                      .filter((m) => categoryFilter === 'Усі' || m.category_name === categoryFilter)
+                      .map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => addToCart('material', m)}
+                          disabled={!m.sale_price}
+                          className="bg-white border border-sage/20 rounded p-3 text-left hover:border-forest transition-colors disabled:opacity-40"
+                        >
+                          {m.image_url && (
+                            <img src={m.image_url} alt="" className="w-full h-16 rounded object-cover mb-2" />
+                          )}
+                          <p className="text-sm text-ink">{m.name}</p>
+                          <p className="text-xs text-sage">
+                            {m.sale_price ? `${m.sale_price} ₴` : 'ціну ще не задано'} · залишок: {m.quantity} {m.unit}
+                          </p>
+                        </button>
+                      ))}
+                  </div>
+                </>
               )}
               <p className="text-xs text-sage mt-2">
                 Роздрібну ціну товару задає власник у "Залишках". Без ціни продати окремо не можна.

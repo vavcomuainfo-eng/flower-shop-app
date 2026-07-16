@@ -14,11 +14,16 @@ const emptyForm = {
   cost_price: 0,
   sale_price: 0,
   supplier_id: '',
+  category_id: '',
+  image_url: '',
 };
 
 export default function InventoryPage() {
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(emptyForm);
@@ -28,7 +33,7 @@ export default function InventoryPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('materials')
-      .select('*, suppliers(name), stock_levels(quantity, min_quantity, location_id)')
+      .select('*, suppliers(name), categories(name), stock_levels(quantity, min_quantity, location_id)')
       .order('name', { ascending: true });
     if (!error) {
       const withStock = (data || []).map((m) => {
@@ -45,11 +50,45 @@ export default function InventoryPage() {
     if (!error) setSuppliers(data || []);
   }
 
+  async function loadCategories() {
+    const { data, error } = await supabase.from('categories').select('id, name').order('name');
+    if (!error) setCategories(data || []);
+  }
+
+  async function handleAddCategory() {
+    if (!newCategoryName.trim()) return;
+    const { data, error } = await supabase
+      .from('categories')
+      .insert({ name: newCategoryName.trim() })
+      .select()
+      .single();
+    if (!error && data) {
+      setNewCategoryName('');
+      await loadCategories();
+      setForm((f) => ({ ...f, category_id: data.id }));
+    }
+  }
+
+  async function handleImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from('product-images').upload(fileName, file);
+    if (!error) {
+      const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
+      setForm((f) => ({ ...f, image_url: data.publicUrl }));
+    }
+    setUploading(false);
+  }
+
   useEffect(() => {
     const locId = getCurrentLocationId();
     setLocationId(locId);
     if (locId) loadMaterials(locId);
     loadSuppliers();
+    loadCategories();
   }, []);
 
   function openNew() {
@@ -70,6 +109,8 @@ export default function InventoryPage() {
       cost_price: Number(form.cost_price),
       sale_price: Number(form.sale_price),
       supplier_id: form.supplier_id || null,
+      category_id: form.category_id || null,
+      image_url: form.image_url || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -138,7 +179,9 @@ export default function InventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
+                <th className="px-4 py-3 font-medium"></th>
                 <th className="px-4 py-3 font-medium">Назва</th>
+                <th className="px-4 py-3 font-medium">Категорія</th>
                 <th className="px-4 py-3 font-medium">Кількість тут</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
                 <th className="px-4 py-3 font-medium">Закупівельна ціна</th>
@@ -152,7 +195,15 @@ export default function InventoryPage() {
                 const low = m.quantity <= m.min_quantity;
                 return (
                   <tr key={m.id} className="border-b border-sage/10 last:border-0">
+                    <td className="px-4 py-3">
+                      {m.image_url ? (
+                        <img src={m.image_url} alt={m.name} className="w-10 h-10 rounded object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded bg-sage/10" />
+                      )}
+                    </td>
                     <td className="px-4 py-3">{m.name}</td>
+                    <td className="px-4 py-3 text-sage">{m.categories?.name || '—'}</td>
                     <td className="px-4 py-3">
                       <span className={low ? 'text-amber font-medium' : 'text-ink'}>{m.quantity}</span>
                       {low && <span className="text-amber text-xs ml-2">мало</span>}
@@ -247,6 +298,50 @@ export default function InventoryPage() {
                   className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
                 />
               </div>
+              <div>
+                <label className="block text-sm text-sage mb-1">Категорія</label>
+                <select
+                  value={form.category_id || ''}
+                  onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
+                >
+                  <option value="">— не вказано —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2 mt-2">
+                  <input
+                    placeholder="Нова категорія..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    className="flex-1 border border-sage/40 rounded px-2 py-1 bg-white text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCategory}
+                    className="text-forest text-sm hover:underline whitespace-nowrap"
+                  >
+                    + додати
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-sage mb-1">Фото</label>
+                <div className="flex items-center gap-3">
+                  {form.image_url ? (
+                    <img src={form.image_url} alt="" className="w-14 h-14 rounded object-cover border border-sage/20" />
+                  ) : (
+                    <div className="w-14 h-14 rounded bg-sage/10" />
+                  )}
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="text-sm" />
+                </div>
+                {uploading && <p className="text-xs text-sage mt-1">Завантаження...</p>}
+              </div>
+
               <div>
                 <label className="block text-sm text-sage mb-1">Постачальник</label>
                 <select

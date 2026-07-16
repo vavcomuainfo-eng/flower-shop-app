@@ -7,9 +7,10 @@ import { getCurrentLocationId } from '@/lib/location';
 
 export default function AssortmentPage() {
   const [materials, setMaterials] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0 });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '' });
   const [restockAmounts, setRestockAmounts] = useState({});
   const [message, setMessage] = useState('');
 
@@ -25,6 +26,13 @@ export default function AssortmentPage() {
     setLocationId(locId);
     if (locId) loadMaterials(locId);
     else setLoading(false);
+    supabase
+      .from('categories')
+      .select('id, name')
+      .order('name')
+      .then(({ data, error }) => {
+        if (!error) setCategories(data || []);
+      });
   }, []);
 
   async function handleAdd(e) {
@@ -36,9 +44,10 @@ export default function AssortmentPage() {
       p_quantity: Number(newItem.quantity),
       p_min_quantity: Number(newItem.min_quantity),
       p_location_id: locationId,
+      p_category_id: newItem.category_id || null,
     });
     if (!error) {
-      setNewItem({ name: '', unit: 'шт', quantity: 0, min_quantity: 0 });
+      setNewItem({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '' });
       setMessage('Додано.');
       loadMaterials(locationId);
     }
@@ -99,6 +108,21 @@ export default function AssortmentPage() {
               className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
             />
           </div>
+          <div>
+            <label className="block text-xs text-sage mb-1">Категорія</label>
+            <select
+              value={newItem.category_id}
+              onChange={(e) => setNewItem({ ...newItem, category_id: e.target.value })}
+              className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+            >
+              <option value="">— не вказано —</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <button type="submit" className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90">
             Додати
           </button>
@@ -127,7 +151,13 @@ export default function AssortmentPage() {
                 const low = m.quantity <= m.min_quantity;
                 return (
                   <tr key={m.id} className="border-b border-sage/10 last:border-0">
-                    <td className="px-4 py-3">{m.name}</td>
+                    <td className="px-4 py-3">
+                      {m.image_url ? (
+                        <img src={m.image_url} alt="" className="w-8 h-8 rounded object-cover inline-block mr-2 align-middle" />
+                      ) : null}
+                      {m.name}
+                      {m.category_name && <span className="text-xs text-sage ml-2">({m.category_name})</span>}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={low ? 'text-amber font-medium' : 'text-ink'}>
                         {m.quantity} {m.unit}
