@@ -28,6 +28,7 @@ export default function SalesPage() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [lastSaleId, setLastSaleId] = useState(null);
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -180,6 +181,7 @@ export default function SalesPage() {
     setSelectedCustomer(null);
     setCustomerResults([]);
     setMessage('Продаж оформлено, склад оновлено.');
+    setLastSaleId(sale.id);
     setSaving(false);
     loadAll(locationId);
   }
@@ -425,7 +427,24 @@ export default function SalesPage() {
 
                 <p className="font-display text-2xl text-ink pt-2">{total.toFixed(0)} ₴</p>
 
-                {message && <p className="text-sm text-leaf">{message}</p>}
+                {message && (
+                  <p className="text-sm text-leaf">
+                    {message}
+                    {lastSaleId && (
+                      <>
+                        {' '}
+                        <a
+                          href={`/receipt/${lastSaleId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-forest underline"
+                        >
+                          Друкувати чек
+                        </a>
+                      </>
+                    )}
+                  </p>
+                )}
 
                 <button
                   onClick={handleCheckout}
@@ -447,10 +466,20 @@ export default function SalesPage() {
                     <span className="font-medium">{s.total_amount} ₴</span>
                   </div>
                   <p className="text-sage text-xs mt-1">{s.items_summary}</p>
-                  <p className="text-sage text-xs">
-                    {CHANNELS.find((c) => c.value === s.order_channel)?.label || s.order_channel}
-                    {s.external_order_ref ? ` · №${s.external_order_ref}` : ''}
-                  </p>
+                  <div className="flex justify-between items-center">
+                    <p className="text-sage text-xs">
+                      {CHANNELS.find((c) => c.value === s.order_channel)?.label || s.order_channel}
+                      {s.external_order_ref ? ` · №${s.external_order_ref}` : ''}
+                    </p>
+                    <a
+                      href={`/receipt/${s.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-forest text-xs hover:underline"
+                    >
+                      🖨 чек
+                    </a>
+                  </div>
                 </div>
               ))}
             </div>

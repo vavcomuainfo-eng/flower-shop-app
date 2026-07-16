@@ -552,6 +552,18 @@ language sql security definer stable as $$
   limit p_limit;
 $$;
 
+-- Позиції конкретного чека для друку (без собівартості)
+create or replace function get_sale_receipt(p_sale_id uuid)
+returns table(item_name text, quantity numeric, price numeric, line_total numeric)
+language sql security definer stable as $$
+  select coalesce(b.name, m.name), si.quantity, si.price, si.quantity * si.price
+  from sale_items si
+  left join bouquets b on b.id = si.bouquet_id
+  left join materials m on m.id = si.material_id
+  where si.sale_id = p_sale_id
+  order by si.id;
+$$;
+
 -- =========================================================
 -- Звіти (лише власник), з можливістю відфільтрувати по магазину
 -- =========================================================
