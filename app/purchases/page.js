@@ -16,6 +16,8 @@ export default function PurchasesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState('');
 
   async function loadAll() {
     setLoading(true);
@@ -63,6 +65,67 @@ export default function PurchasesPage() {
 
   function removeItemRow(index) {
     setItems(items.filter((_, i) => i !== index));
+  }
+
+  function findBestMatch(name) {
+    if (!name) return '';
+    const lower = name.toLowerCase().trim();
+    const found = materials.find(
+      (m) => m.name.toLowerCase().includes(lower) || lower.includes(m.name.toLowerCase())
+    );
+    return found?.id || '';
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleScanReceipt(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanning(true);
+    setScanNote('');
+
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await fetch('/api/scan-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setScanNote(`Не вдалося розпізнати: ${data.error}`);
+        setScanning(false);
+        return;
+      }
+
+      const newRows = (data.items || []).map((it) => ({
+        material_id: findBestMatch(it.name) || materials[0]?.id || '',
+        quantity: it.quantity ?? 1,
+        unit_cost: it.unit_price ?? 0,
+        _ai_name: it.name,
+      }));
+
+      setItems((prev) => [...prev, ...newRows]);
+      if (data.supplier_name) {
+        const matchedSupplier = suppliers.find((s) =>
+          s.name.toLowerCase().includes(data.supplier_name.toLowerCase())
+        );
+        if (matchedSupplier) setSupplierId(matchedSupplier.id);
+      }
+      setScanNote(`Розпізнано позицій: ${newRows.length}. Перевірте відповідність товарів і ціни нижче.`);
+    } catch {
+      setScanNote('Помилка при скануванні. Спробуйте ще раз.');
+    }
+    setScanning(false);
+    e.target.value = '';
   }
 
   const total = items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_cost || 0), 0);
@@ -133,6 +196,22 @@ export default function PurchasesPage() {
           <div className="lg:col-span-2 bg-white border border-sage/20 rounded p-5">
             <h2 className="font-display text-lg text-ink mb-3">Нове надходження</h2>
 
+            <div className="bg-paper border border-sage/20 rounded p-3 mb-4">
+              <label className="inline-flex items-center gap-2 text-sm text-forest cursor-pointer">
+                📷 Сканувати чек постачальника (фото)
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleScanReceipt}
+                  disabled={scanning}
+                  className="hidden"
+                />
+              </label>
+              {scanning && <p className="text-xs text-sage mt-1">Розпізнаємо фото, зачекайте кілька секунд...</p>}
+              {scanNote && <p className="text-xs text-sage mt-1">{scanNote}</p>}
+            </div>
+
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <label className="block text-sm text-sage mb-1">Склад</label>
@@ -186,37 +265,44 @@ export default function PurchasesPage() {
 
             <div className="space-y-2">
               {items.map((it, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <select
-                    value={it.material_id}
-                    onChange={(e) => updateItemRow(index, 'material_id', e.target.value)}
-                    className="flex-1 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
-                  >
-                    {materials.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="кількість"
-                    value={it.quantity}
-                    onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}
-                    className="w-24 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="ціна/од."
-                    value={it.unit_cost}
-                    onChange={(e) => updateItemRow(index, 'unit_cost', e.target.value)}
-                    className="w-24 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
-                  />
-                  <button onClick={() => removeItemRow(index)} className="text-rose text-sm px-1">
-                    ✕
-                  </button>
+                <div key={index}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={it.material_id}
+                      onChange={(e) => updateItemRow(index, 'material_id', e.target.value)}
+                      className="flex-1 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                    >
+                      {materials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="кількість"
+                      value={it.quantity}
+                      onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}
+                      className="w-24 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="ціна/од."
+                      value={it.unit_cost}
+                      onChange={(e) => updateItemRow(index, 'unit_cost', e.target.value)}
+                      className="w-24 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                    />
+                    <button onClick={() => removeItemRow(index)} className="text-rose text-sm px-1">
+                      ✕
+                    </button>
+                  </div>
+                  {it._ai_name && (
+                    <p className="text-xs text-sage pl-1 mt-0.5">
+                      З фото: "{it._ai_name}" — перевірте, чи правильно зіставлено з товаром
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

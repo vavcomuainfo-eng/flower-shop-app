@@ -136,8 +136,8 @@ export default function AssortmentPage() {
       ) : materials.length === 0 ? (
         <p className="text-sage">Тут ще нічого немає.</p>
       ) : (
-        <div className="bg-white border border-sage/20 rounded overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white border border-sage/20 rounded overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium">Назва</th>

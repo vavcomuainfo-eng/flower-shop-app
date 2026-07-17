@@ -26,6 +26,9 @@ const ownerLinks = [
 const sellerLinks = [
   { href: '/sales', label: 'Продажі' },
   { href: '/assortment', label: 'Асортимент' },
+  { href: '/transfers', label: 'Переміщення' },
+  { href: '/writeoffs', label: 'Списання' },
+  { href: '/repricing', label: 'Переоцінка' },
   { href: '/customers', label: 'Клієнти' },
 ];
 

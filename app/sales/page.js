@@ -29,6 +29,9 @@ export default function SalesPage() {
   const [customerResults, setCustomerResults] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [lastSaleId, setLastSaleId] = useState(null);
+  const [showDiscount, setShowDiscount] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [discountReason, setDiscountReason] = useState('');
   const [recentSales, setRecentSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,7 +111,8 @@ export default function SalesPage() {
 
   const isPlatform = orderChannel === 'glovo' || orderChannel === 'bolt';
   const itemsTotal = cart.reduce((sum, c) => sum + Number(c.price || 0) * Number(c.quantity || 0), 0);
-  const total = itemsTotal + (orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0);
+  const discountedItemsTotal = itemsTotal * (1 - Number(discountPercent || 0) / 100);
+  const total = discountedItemsTotal + (orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0);
 
   function resetOrderExtras() {
     setOrderChannel('store');
@@ -117,10 +121,17 @@ export default function SalesPage() {
     setDeliveryDate('');
     setDeliveryFee(0);
     setExternalOrderRef('');
+    setShowDiscount(false);
+    setDiscountPercent(0);
+    setDiscountReason('');
   }
 
   async function handleCheckout() {
     if (cart.length === 0) return;
+    if (Number(discountPercent) > 0 && !discountReason.trim()) {
+      setMessage('Вкажіть причину знижки.');
+      return;
+    }
     setSaving(true);
     setMessage('');
 
@@ -139,6 +150,8 @@ export default function SalesPage() {
         delivery_date:
           orderChannel === 'own_delivery' && deliveryDate ? new Date(deliveryDate).toISOString() : null,
         delivery_fee: orderChannel === 'own_delivery' ? Number(deliveryFee || 0) : 0,
+        discount_percent: Number(discountPercent || 0),
+        discount_reason: Number(discountPercent) > 0 ? discountReason.trim() : null,
       })
       .select()
       .single();
@@ -277,7 +290,7 @@ export default function SalesPage() {
               ) : (
                 <div className="space-y-3">
                   {cart.map((c, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm">
+                    <div key={index} className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="flex-1">{c.name}</span>
                       <input
                         type="number"
@@ -423,6 +436,55 @@ export default function SalesPage() {
                       Оплата надійде від сервісу на картку пізніше — сюди фіксуємо лише сам факт продажу й списання складу.
                     </p>
                   </div>
+                )}
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscount((v) => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-full border ${
+                      showDiscount || Number(discountPercent) > 0
+                        ? 'bg-forest text-white border-forest'
+                        : 'bg-white text-sage border-sage/40'
+                    }`}
+                  >
+                    🏷️ Знижка{Number(discountPercent) > 0 ? ` −${discountPercent}%` : ''}
+                  </button>
+
+                  {showDiscount && (
+                    <div className="mt-2 space-y-2 pl-1 border-l-2 border-sage/20">
+                      <div>
+                        <label className="block text-xs text-sage mb-1">Знижка, %</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={discountPercent}
+                          onChange={(e) => setDiscountPercent(e.target.value)}
+                          className="w-24 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-sage mb-1">
+                          Причина знижки {Number(discountPercent) > 0 && <span className="text-rose">*</span>}
+                        </label>
+                        <input
+                          value={discountReason}
+                          onChange={(e) => setDiscountReason(e.target.value)}
+                          placeholder="напр. постійний клієнт, день народження..."
+                          className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {Number(discountPercent) > 0 && (
+                  <p className="text-xs text-sage">
+                    Товари: {itemsTotal.toFixed(0)} ₴ − знижка {discountPercent}% ={' '}
+                    {discountedItemsTotal.toFixed(0)} ₴
+                  </p>
                 )}
 
                 <p className="font-display text-2xl text-ink pt-2">{total.toFixed(0)} ₴</p>

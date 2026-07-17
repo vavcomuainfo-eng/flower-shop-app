@@ -65,6 +65,11 @@ export default function ReceiptPage() {
               <span>{Number(it.line_total).toFixed(0)} ₴</span>
             </div>
           ))}
+          {sale.discount_percent > 0 && (
+            <div className="flex justify-between gap-2 text-rose">
+              <span className="flex-1">Знижка {sale.discount_percent}% ({sale.discount_reason})</span>
+            </div>
+          )}
           {sale.is_delivery && sale.delivery_fee > 0 && (
             <div className="flex justify-between gap-2">
               <span className="flex-1">Доставка</span>

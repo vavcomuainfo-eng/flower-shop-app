@@ -3,43 +3,67 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
+import { getMyRole } from '@/lib/role';
 
 export default function RepricingPage() {
+  const [role, setRole] = useState(null);
   const [materials, setMaterials] = useState([]);
   const [categories, setCategories] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState('Усі');
-  const [selected, setSelected] = useState({}); // {materialId: true}
-  const [drafts, setDrafts] = useState({}); // {materialId: {sale_price, cost_price}}
+  const [selected, setSelected] = useState({});
+  const [drafts, setDrafts] = useState({});
   const [percent, setPercent] = useState(0);
-  const [priceField, setPriceField] = useState('sale_price'); // 'sale_price' | 'cost_price'
+  const [priceField, setPriceField] = useState('sale_price');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  async function loadMaterials() {
+  const isOwner = role === 'owner';
+
+  async function loadMaterials(r) {
     setLoading(true);
-    const [mRes, cRes] = await Promise.all([
-      supabase.from('materials').select('id, name, cost_price, sale_price, categories(name)').order('name'),
-      supabase.from('categories').select('id, name').order('name'),
-    ]);
-    if (!mRes.error) {
-      setMaterials(mRes.data || []);
-      const initDrafts = {};
-      (mRes.data || []).forEach((m) => {
-        initDrafts[m.id] = { sale_price: m.sale_price, cost_price: m.cost_price };
-      });
-      setDrafts(initDrafts);
+    if (r === 'owner') {
+      const [mRes, cRes] = await Promise.all([
+        supabase.from('materials').select('id, name, cost_price, sale_price, categories(name)').order('name'),
+        supabase.from('categories').select('id, name').order('name'),
+      ]);
+      if (!mRes.error) {
+        const normalized = (mRes.data || []).map((m) => ({ ...m, category_name: m.categories?.name }));
+        setMaterials(normalized);
+        const initDrafts = {};
+        normalized.forEach((m) => {
+          initDrafts[m.id] = { sale_price: m.sale_price, cost_price: m.cost_price };
+        });
+        setDrafts(initDrafts);
+      }
+      if (!cRes.error) setCategories(cRes.data || []);
+    } else {
+      const { data, error } = await supabase.rpc('get_materials_prices');
+      if (!error) {
+        setMaterials(data || []);
+        const initDrafts = {};
+        (data || []).forEach((m) => {
+          initDrafts[m.id] = { sale_price: m.sale_price };
+        });
+        setDrafts(initDrafts);
+        setCategories([...new Set((data || []).map((m) => m.category_name).filter(Boolean))].map((name) => ({ name })));
+      }
     }
-    if (!cRes.error) setCategories(cRes.data || []);
     setLoading(false);
   }
 
   useEffect(() => {
-    loadMaterials();
+    async function init() {
+      const r = await getMyRole();
+      setRole(r);
+      if (r !== 'owner') setPriceField('sale_price');
+      loadMaterials(r);
+    }
+    init();
   }, []);
 
   const filtered = materials.filter(
-    (m) => categoryFilter === 'Усі' || m.categories?.name === categoryFilter
+    (m) => categoryFilter === 'Усі' || m.category_name === categoryFilter
   );
 
   function toggleSelect(id) {
@@ -77,34 +101,48 @@ export default function RepricingPage() {
       const draft = drafts[m.id];
       if (!draft) continue;
       const newSale = Number(draft.sale_price);
-      const newCost = Number(draft.cost_price);
-      if (newSale === Number(m.sale_price) && newCost === Number(m.cost_price)) continue;
 
-      await supabase
-        .from('materials')
-        .update({ sale_price: newSale, cost_price: newCost, updated_at: new Date().toISOString() })
-        .eq('id', m.id);
+      if (isOwner) {
+        const newCost = Number(draft.cost_price);
+        if (newSale === Number(m.sale_price) && newCost === Number(m.cost_price)) continue;
 
-      await supabase.from('price_history').insert({
-        material_id: m.id,
-        old_cost_price: m.cost_price,
-        new_cost_price: newCost,
-        old_sale_price: m.sale_price,
-        new_sale_price: newSale,
-      });
+        await supabase
+          .from('materials')
+          .update({ sale_price: newSale, cost_price: newCost, updated_at: new Date().toISOString() })
+          .eq('id', m.id);
+
+        await supabase.from('price_history').insert({
+          material_id: m.id,
+          old_cost_price: m.cost_price,
+          new_cost_price: newCost,
+          old_sale_price: m.sale_price,
+          new_sale_price: newSale,
+        });
+      } else {
+        if (newSale === Number(m.sale_price)) continue;
+        await supabase.rpc('update_material_sale_price', {
+          p_material_id: m.id,
+          p_new_sale_price: newSale,
+        });
+      }
       changedCount += 1;
     }
 
     setMessage(changedCount > 0 ? `Оновлено цін: ${changedCount}.` : 'Немає змін для збереження.');
     setSaving(false);
-    loadMaterials();
+    loadMaterials(role);
     setSelected({});
   }
 
   return (
-    <ProtectedPage ownerOnly>
+    <ProtectedPage>
       <h1 className="font-display text-2xl text-forest mb-1">Переоцінка</h1>
       <div className="stem-divider w-16 mb-8" />
+      {!isOwner && role && (
+        <p className="text-xs text-sage -mt-6 mb-8">
+          Ви бачите й можете змінювати лише роздрібну ціну. Закупівельна лишається видимою тільки власнику.
+        </p>
+      )}
 
       {loading ? (
         <p className="text-sage">Завантаження...</p>
@@ -112,17 +150,19 @@ export default function RepricingPage() {
         <>
           <div className="bg-white border border-sage/20 rounded p-5 mb-6">
             <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs text-sage mb-1">Яку ціну міняти</label>
-                <select
-                  value={priceField}
-                  onChange={(e) => setPriceField(e.target.value)}
-                  className="border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
-                >
-                  <option value="sale_price">Роздрібну</option>
-                  <option value="cost_price">Закупівельну</option>
-                </select>
-              </div>
+              {isOwner && (
+                <div>
+                  <label className="block text-xs text-sage mb-1">Яку ціну міняти</label>
+                  <select
+                    value={priceField}
+                    onChange={(e) => setPriceField(e.target.value)}
+                    className="border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                  >
+                    <option value="sale_price">Роздрібну</option>
+                    <option value="cost_price">Закупівельну</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-sage mb-1">На скільки % (можна від'ємне)</label>
                 <input
@@ -145,36 +185,38 @@ export default function RepricingPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {['Усі', ...new Set(materials.map((m) => m.categories?.name).filter(Boolean))].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`text-xs px-3 py-1.5 rounded-full border ${
-                  categoryFilter === cat ? 'bg-forest text-white border-forest' : 'bg-white text-sage border-sage/40'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {['Усі', ...new Set(categories.map((c) => c.name).filter(Boolean))].map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`text-xs px-3 py-1.5 rounded-full border ${
+                    categoryFilter === cat ? 'bg-forest text-white border-forest' : 'bg-white text-sage border-sage/40'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
 
-          <div className="bg-white border border-sage/20 rounded overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-white border border-sage/20 rounded overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
               <thead>
                 <tr className="text-left text-sage border-b border-sage/20">
                   <th className="px-4 py-3">
                     <input type="checkbox" onChange={toggleSelectAll} />
                   </th>
                   <th className="px-4 py-3 font-medium">Назва</th>
-                  <th className="px-4 py-3 font-medium">Закупівельна (зараз → нова)</th>
+                  {isOwner && <th className="px-4 py-3 font-medium">Закупівельна (зараз → нова)</th>}
                   <th className="px-4 py-3 font-medium">Роздрібна (зараз → нова)</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((m) => {
                   const draft = drafts[m.id] || {};
-                  const costChanged = Number(draft.cost_price) !== Number(m.cost_price);
+                  const costChanged = isOwner && Number(draft.cost_price) !== Number(m.cost_price);
                   const saleChanged = Number(draft.sale_price) !== Number(m.sale_price);
                   return (
                     <tr key={m.id} className="border-b border-sage/10 last:border-0">
@@ -186,18 +228,20 @@ export default function RepricingPage() {
                         />
                       </td>
                       <td className="px-4 py-3">{m.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-sage">{m.cost_price} ₴ → </span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={draft.cost_price ?? ''}
-                          onChange={(e) => updateDraft(m.id, 'cost_price', e.target.value)}
-                          className={`w-24 border rounded px-2 py-1 bg-white ${
-                            costChanged ? 'border-forest text-forest font-medium' : 'border-sage/40'
-                          }`}
-                        />
-                      </td>
+                      {isOwner && (
+                        <td className="px-4 py-3">
+                          <span className="text-sage">{m.cost_price} ₴ → </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={draft.cost_price ?? ''}
+                            onChange={(e) => updateDraft(m.id, 'cost_price', e.target.value)}
+                            className={`w-24 border rounded px-2 py-1 bg-white ${
+                              costChanged ? 'border-forest text-forest font-medium' : 'border-sage/40'
+                            }`}
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <span className="text-sage">{m.sale_price} ₴ → </span>
                         <input

@@ -151,6 +151,8 @@ create table if not exists sales (
   delivery_phone text,
   delivery_date timestamptz,
   delivery_fee numeric default 0,
+  discount_percent numeric default 0,
+  discount_reason text,
   notes text
 );
 
@@ -305,10 +307,10 @@ create policy "owner update categories" on categories
 create policy "owner delete categories" on categories
   for delete using (is_owner());
 
-create policy "owner full access on transfers" on transfers
-  for all using (is_owner()) with check (is_owner());
-create policy "owner full access on transfer_items" on transfer_items
-  for all using (is_owner()) with check (is_owner());
+create policy "authenticated full access on transfers" on transfers
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated full access on transfer_items" on transfer_items
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 create policy "owner full access on write_offs" on write_offs
   for all using (is_owner()) with check (is_owner());
@@ -436,6 +438,62 @@ create policy "Owner update product images" on storage.objects
   for update using (bucket_id = 'product-images' and is_owner());
 create policy "Owner delete product images" on storage.objects
   for delete using (bucket_id = 'product-images' and is_owner());
+
+-- Списання для продавця: рахує собівартість і списує залишок сам,
+-- ніколи не повертаючи ціну викликачу
+create or replace function record_write_off(p_location_id uuid, p_reason text, p_notes text, p_items jsonb)
+returns void
+language plpgsql security definer as $$
+declare
+  new_id uuid;
+  item jsonb;
+  mat_cost numeric;
+begin
+  insert into write_offs (location_id, reason, notes) values (p_location_id, p_reason, p_notes)
+  returning id into new_id;
+
+  for item in select * from jsonb_array_elements(p_items)
+  loop
+    select cost_price into mat_cost from materials where id = (item->>'material_id')::uuid;
+
+    insert into write_off_items (write_off_id, material_id, quantity, cost_at_writeoff)
+    values (
+      new_id,
+      (item->>'material_id')::uuid,
+      (item->>'quantity')::numeric,
+      (item->>'quantity')::numeric * coalesce(mat_cost, 0)
+    );
+
+    insert into stock_levels (location_id, material_id, quantity)
+    values (p_location_id, (item->>'material_id')::uuid, -(item->>'quantity')::numeric)
+    on conflict (location_id, material_id)
+    do update set quantity = stock_levels.quantity - (item->>'quantity')::numeric, updated_at = now();
+  end loop;
+end;
+$$;
+
+-- Переоцінка для продавця: бачить і міняє ЛИШЕ роздрібну ціну, закупівельна лишається прихованою
+create or replace function get_materials_prices()
+returns table(id uuid, name text, category_name text, sale_price numeric)
+language sql security definer stable as $$
+  select m.id, m.name, c.name, m.sale_price
+  from materials m
+  left join categories c on c.id = m.category_id
+  order by m.name;
+$$;
+
+create or replace function update_material_sale_price(p_material_id uuid, p_new_sale_price numeric, p_note text default null)
+returns void
+language plpgsql security definer as $$
+declare
+  old_price numeric;
+begin
+  select sale_price into old_price from materials where id = p_material_id;
+  update materials set sale_price = p_new_sale_price, updated_at = now() where id = p_material_id;
+  insert into price_history (material_id, old_sale_price, new_sale_price, note)
+  values (p_material_id, old_price, p_new_sale_price, p_note);
+end;
+$$;
 
 -- =========================================================
 -- Функції для роботи зі складом (з урахуванням конкретного магазину)

@@ -255,7 +255,7 @@ export default function BouquetsPage() {
 
                 <div className="space-y-2">
                   {items.map((it, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                    <div key={index} className="flex flex-wrap items-center gap-2">
                       <select
                         value={it.material_id}
                         onChange={(e) => updateItemRow(index, 'material_id', e.target.value)}

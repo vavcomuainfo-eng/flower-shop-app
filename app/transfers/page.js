@@ -17,7 +17,7 @@ export default function TransfersPage() {
   const [message, setMessage] = useState('');
 
   async function loadLocations() {
-    const { data, error } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false }).order('name');
+    const { data, error } = await supabase.rpc('get_my_locations');
     if (!error) {
       setLocations(data || []);
       setFromId((prev) => prev || data?.find((l) => l.type === 'warehouse')?.id || data?.[0]?.id || '');
@@ -123,7 +123,7 @@ export default function TransfersPage() {
   }
 
   return (
-    <ProtectedPage ownerOnly>
+    <ProtectedPage>
       <h1 className="font-display text-2xl text-forest mb-1">Переміщення</h1>
       <div className="stem-divider w-16 mb-8" />
 
@@ -187,7 +187,7 @@ export default function TransfersPage() {
 
             <div className="space-y-2">
               {items.map((it, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex flex-wrap items-center gap-2">
                   <select
                     value={it.material_id}
                     onChange={(e) => updateItemRow(index, 'material_id', e.target.value)}
