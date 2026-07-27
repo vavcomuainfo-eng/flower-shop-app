@@ -6,7 +6,7 @@
 -- ---------- РОЛІ КОРИСТУВАЧІВ (власник / продавець) ----------
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  role text not null default 'seller' check (role in ('owner', 'seller')),
+  role text not null default 'seller' check (role in ('owner', 'admin', 'seller')),
   created_at timestamptz default now()
 );
 
@@ -31,6 +31,10 @@ create trigger on_auth_user_created
 
 create or replace function is_owner() returns boolean as $$
   select exists(select 1 from profiles where id = auth.uid() and role = 'owner');
+$$ language sql security definer stable;
+
+create or replace function is_admin_or_owner() returns boolean as $$
+  select exists(select 1 from profiles where id = auth.uid() and role in ('owner', 'admin'));
 $$ language sql security definer stable;
 
 -- ---------- МАГАЗИНИ ТА ЦЕНТРАЛЬНИЙ СКЛАД ----------
@@ -115,7 +119,10 @@ create table if not exists purchases (
   supplier_id uuid references suppliers(id) on delete set null,
   purchase_date timestamptz default now(),
   total_cost numeric default 0,
-  notes text
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  reverted_at timestamptz,
+  reverted_by uuid references auth.users(id)
 );
 
 create table if not exists purchase_items (
@@ -173,7 +180,10 @@ create table if not exists transfers (
   from_location_id uuid references locations(id) on delete set null,
   to_location_id uuid references locations(id) on delete set null,
   transfer_date timestamptz default now(),
-  notes text
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  reverted_at timestamptz,
+  reverted_by uuid references auth.users(id)
 );
 
 create table if not exists transfer_items (
@@ -189,7 +199,10 @@ create table if not exists write_offs (
   location_id uuid references locations(id) on delete set null,
   write_off_date timestamptz default now(),
   reason text not null default 'інше',
-  notes text
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  reverted_at timestamptz,
+  reverted_by uuid references auth.users(id)
 );
 
 create table if not exists write_off_items (
@@ -209,7 +222,10 @@ create table if not exists price_history (
   old_sale_price numeric,
   new_sale_price numeric,
   note text,
-  changed_at timestamptz default now()
+  changed_at timestamptz default now(),
+  created_by uuid default auth.uid() references auth.users(id),
+  reverted_at timestamptz,
+  reverted_by uuid references auth.users(id)
 );
 
 -- ---------- ІНВЕНТАРИЗАЦІЯ ----------
@@ -217,7 +233,10 @@ create table if not exists stocktakes (
   id uuid primary key default gen_random_uuid(),
   location_id uuid references locations(id) on delete set null,
   stocktake_date timestamptz default now(),
-  notes text
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id),
+  reverted_at timestamptz,
+  reverted_by uuid references auth.users(id)
 );
 
 create table if not exists stocktake_items (
@@ -319,22 +338,22 @@ create policy "owner full access on write_off_items" on write_off_items
 
 create policy "owner full access on price_history" on price_history
   for all using (is_owner()) with check (is_owner());
-create policy "owner full access on stocktakes" on stocktakes
-  for all using (is_owner()) with check (is_owner());
-create policy "owner full access on stocktake_items" on stocktake_items
-  for all using (is_owner()) with check (is_owner());
+create policy "admin or owner full access on stocktakes" on stocktakes
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
+create policy "admin or owner full access on stocktake_items" on stocktake_items
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
 
 -- materials і stock_levels містять/пов'язані з цінами — прямий доступ лише власнику,
 -- продавець працює через безпечні функції нижче
-create policy "owner full access on materials" on materials
-  for all using (is_owner()) with check (is_owner());
-create policy "owner full access on stock_levels" on stock_levels
-  for all using (is_owner()) with check (is_owner());
+create policy "admin or owner full access on materials" on materials
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
+create policy "admin or owner full access on stock_levels" on stock_levels
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
 
-create policy "owner full access on purchases" on purchases
-  for all using (is_owner()) with check (is_owner());
-create policy "owner full access on purchase_items" on purchase_items
-  for all using (is_owner()) with check (is_owner());
+create policy "admin or owner full access on purchases" on purchases
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
+create policy "admin or owner full access on purchase_items" on purchase_items
+  for all using (is_admin_or_owner()) with check (is_admin_or_owner());
 
 create policy "owner select sale_items" on sale_items
   for select using (is_owner());
@@ -495,6 +514,44 @@ begin
 end;
 $$;
 
+-- Складання букета з наявних матеріалів: створює новий товар (з назвою),
+-- списує компоненти, рахує собівартість сама (без витоку продавцю)
+create or replace function assemble_bouquet_to_stock(
+  p_location_id uuid, p_name text, p_sale_price numeric, p_items jsonb
+)
+returns uuid
+language plpgsql security definer as $$
+declare
+  new_material_id uuid;
+  item jsonb;
+  total_cost numeric := 0;
+  mat_cost numeric;
+begin
+  for item in select * from jsonb_array_elements(p_items)
+  loop
+    select cost_price into mat_cost from materials where id = (item->>'material_id')::uuid;
+    total_cost := total_cost + coalesce(mat_cost, 0) * (item->>'quantity')::numeric;
+  end loop;
+
+  insert into materials (name, unit, cost_price, sale_price)
+  values (p_name, 'шт', total_cost, p_sale_price)
+  returning id into new_material_id;
+
+  insert into stock_levels (location_id, material_id, quantity)
+  values (p_location_id, new_material_id, 1);
+
+  for item in select * from jsonb_array_elements(p_items)
+  loop
+    insert into stock_levels (location_id, material_id, quantity)
+    values (p_location_id, (item->>'material_id')::uuid, -(item->>'quantity')::numeric)
+    on conflict (location_id, material_id)
+    do update set quantity = stock_levels.quantity - (item->>'quantity')::numeric, updated_at = now();
+  end loop;
+
+  return new_material_id;
+end;
+$$;
+
 -- =========================================================
 -- Функції для роботи зі складом (з урахуванням конкретного магазину)
 -- =========================================================
@@ -620,6 +677,150 @@ language sql security definer stable as $$
   left join materials m on m.id = si.material_id
   where si.sale_id = p_sale_id
   order by si.id;
+$$;
+
+-- =========================================================
+-- Журнал дій і скасування (лише CEO BaB)
+-- =========================================================
+
+create or replace function get_audit_log(p_limit int default 100)
+returns table(
+  id uuid, action_type text, action_date timestamptz, actor_email text,
+  location_name text, summary text, reverted boolean
+)
+language plpgsql security definer as $$
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  return query
+  (
+    select p.id, 'Прихід товару'::text, p.purchase_date, u.email::text, l.name,
+      ('на суму ' || p.total_cost || ' ₴' || coalesce(' · ' || s.name, ''))::text,
+      (p.reverted_at is not null)
+    from purchases p
+    left join auth.users u on u.id = p.created_by
+    left join locations l on l.id = p.location_id
+    left join suppliers s on s.id = p.supplier_id
+  )
+  union all
+  (
+    select w.id, 'Списання'::text, w.write_off_date, u.email::text, l.name,
+      (w.reason || coalesce(': ' || w.notes, ''))::text,
+      (w.reverted_at is not null)
+    from write_offs w
+    left join auth.users u on u.id = w.created_by
+    left join locations l on l.id = w.location_id
+  )
+  union all
+  (
+    select t.id, 'Переміщення'::text, t.transfer_date, u.email::text, (fl.name || ' → ' || tl.name),
+      coalesce(t.notes, '')::text,
+      (t.reverted_at is not null)
+    from transfers t
+    left join auth.users u on u.id = t.created_by
+    left join locations fl on fl.id = t.from_location_id
+    left join locations tl on tl.id = t.to_location_id
+  )
+  union all
+  (
+    select st.id, 'Інвентаризація'::text, st.stocktake_date, u.email::text, l.name,
+      coalesce(st.notes, 'звірка залишків')::text,
+      (st.reverted_at is not null)
+    from stocktakes st
+    left join auth.users u on u.id = st.created_by
+    left join locations l on l.id = st.location_id
+  )
+  union all
+  (
+    select ph.id, 'Переоцінка'::text, ph.changed_at, u.email::text, m.name,
+      ('роздрібна ' || coalesce(ph.old_sale_price::text, '-') || '→' || coalesce(ph.new_sale_price::text, '-') ||
+       case when ph.old_cost_price is distinct from ph.new_cost_price
+            then ', закупівельна ' || coalesce(ph.old_cost_price::text, '-') || '→' || coalesce(ph.new_cost_price::text, '-')
+            else '' end)::text,
+      (ph.reverted_at is not null)
+    from price_history ph
+    left join auth.users u on u.id = ph.created_by
+    left join materials m on m.id = ph.material_id
+  )
+  order by action_date desc
+  limit p_limit;
+end;
+$$;
+
+create or replace function revert_purchase(p_id uuid) returns void
+language plpgsql security definer as $$
+declare it record;
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  if exists (select 1 from purchases where id = p_id and reverted_at is not null) then
+    raise exception 'already reverted';
+  end if;
+  for it in select material_id, quantity from purchase_items where purchase_id = p_id loop
+    update stock_levels set quantity = quantity - it.quantity, updated_at = now()
+    where material_id = it.material_id and location_id = (select location_id from purchases where id = p_id);
+  end loop;
+  update purchases set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
+$$;
+
+create or replace function revert_write_off(p_id uuid) returns void
+language plpgsql security definer as $$
+declare it record;
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  if exists (select 1 from write_offs where id = p_id and reverted_at is not null) then
+    raise exception 'already reverted';
+  end if;
+  for it in select material_id, quantity from write_off_items where write_off_id = p_id loop
+    update stock_levels set quantity = quantity + it.quantity, updated_at = now()
+    where material_id = it.material_id and location_id = (select location_id from write_offs where id = p_id);
+  end loop;
+  update write_offs set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
+$$;
+
+create or replace function revert_transfer(p_id uuid) returns void
+language plpgsql security definer as $$
+declare it record; t record;
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  select * into t from transfers where id = p_id;
+  if t.reverted_at is not null then raise exception 'already reverted'; end if;
+  for it in select material_id, quantity from transfer_items where transfer_id = p_id loop
+    update stock_levels set quantity = quantity + it.quantity, updated_at = now()
+    where material_id = it.material_id and location_id = t.from_location_id;
+    update stock_levels set quantity = quantity - it.quantity, updated_at = now()
+    where material_id = it.material_id and location_id = t.to_location_id;
+  end loop;
+  update transfers set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
+$$;
+
+create or replace function revert_stocktake(p_id uuid) returns void
+language plpgsql security definer as $$
+declare it record; s record;
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  select * into s from stocktakes where id = p_id;
+  if s.reverted_at is not null then raise exception 'already reverted'; end if;
+  for it in select material_id, expected_quantity from stocktake_items where stocktake_id = p_id loop
+    update stock_levels set quantity = it.expected_quantity, updated_at = now()
+    where material_id = it.material_id and location_id = s.location_id;
+  end loop;
+  update stocktakes set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
+$$;
+
+create or replace function revert_price_change(p_id uuid) returns void
+language plpgsql security definer as $$
+declare ph record;
+begin
+  if not is_owner() then raise exception 'access denied'; end if;
+  select * into ph from price_history where id = p_id;
+  if ph.reverted_at is not null then raise exception 'already reverted'; end if;
+  update materials set sale_price = ph.old_sale_price, cost_price = coalesce(ph.old_cost_price, cost_price), updated_at = now()
+  where id = ph.material_id;
+  update price_history set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
 $$;
 
 -- =========================================================

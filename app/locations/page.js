@@ -65,9 +65,8 @@ export default function LocationsPage() {
     loadAll();
   }
 
-  async function toggleRole(profileId, currentRole) {
-    const newRole = currentRole === 'owner' ? 'seller' : 'owner';
-    if (!confirm(`Змінити роль на "${newRole === 'owner' ? 'власник' : 'продавець'}"?`)) return;
+  async function changeRole(profileId, newRole) {
+    // CEO BaB призначає лише флориста або адміна — роль "власник" тут не видається
     await supabase.rpc('set_employee_role', { p_profile_id: profileId, p_role: newRole });
     loadAll();
   }
@@ -144,12 +143,18 @@ export default function LocationsPage() {
                     <tr key={emp.id} className="border-b border-sage/10 last:border-0">
                       <td className="px-4 py-3">{emp.email}</td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleRole(emp.id, emp.role)}
-                          className={emp.role === 'owner' ? 'text-forest' : 'text-sage'}
-                        >
-                          {emp.role === 'owner' ? 'власник' : 'продавець'}
-                        </button>
+                        {emp.role === 'owner' ? (
+                          <span className="text-forest font-medium">CEO BaB</span>
+                        ) : (
+                          <select
+                            value={emp.role}
+                            onChange={(e) => changeRole(emp.id, e.target.value)}
+                            className="text-sm border border-sage/40 rounded px-2 py-1 bg-white"
+                          >
+                            <option value="seller">Флорист</option>
+                            <option value="admin">Адмін</option>
+                          </select>
+                        )}
                       </td>
                       {locations.map((l) => {
                         const isAssigned = emp.location_ids?.includes(l.id);

@@ -182,7 +182,7 @@ export default function PurchasesPage() {
   }
 
   return (
-    <ProtectedPage ownerOnly>
+    <ProtectedPage adminOnly>
       <h1 className="font-display text-2xl text-forest mb-1">Поповнення складу</h1>
       <div className="stem-divider w-16 mb-8" />
       <p className="text-xs text-sage mb-6">

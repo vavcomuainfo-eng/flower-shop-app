@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { getMyRole } from '@/lib/role';
 import Nav from './Nav';
 
-export default function ProtectedPage({ children, ownerOnly = false }) {
+export default function ProtectedPage({ children, ownerOnly = false, adminOnly = false }) {
   const router = useRouter();
   const [checked, setChecked] = useState(false);
 
@@ -25,11 +25,17 @@ export default function ProtectedPage({ children, ownerOnly = false }) {
           router.push('/sales');
           return;
         }
+      } else if (adminOnly) {
+        const role = await getMyRole();
+        if (role !== 'owner' && role !== 'admin') {
+          router.push('/sales');
+          return;
+        }
       }
       setChecked(true);
     }
     check();
-  }, [router, ownerOnly]);
+  }, [router, ownerOnly, adminOnly]);
 
   if (!checked) {
     return <div className="min-h-screen bg-paper" />;

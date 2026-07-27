@@ -31,6 +31,8 @@ export default function SalesPage() {
   const [lastSaleId, setLastSaleId] = useState(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [builderItems, setBuilderItems] = useState([]);
+  const [builderName, setBuilderName] = useState('');
+  const [builderSaving, setBuilderSaving] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
@@ -96,21 +98,29 @@ export default function SalesPage() {
 
   const builderTotal = builderItems.reduce((sum, it) => sum + it.price * it.quantity, 0);
 
-  function addBuilderToCart() {
-    setCart((prev) => {
-      let next = [...prev];
-      builderItems.forEach((it) => {
-        const idx = next.findIndex((c) => c.type === 'material' && c.id === it.id);
-        if (idx >= 0) {
-          next[idx] = { ...next[idx], quantity: Number(next[idx].quantity) + it.quantity };
-        } else {
-          next = [...next, { type: 'material', id: it.id, name: it.name, price: it.price, quantity: it.quantity }];
-        }
-      });
-      return next;
+  async function assembleBuilder(mode) {
+    if (!builderName.trim() || builderItems.length === 0 || !locationId) return;
+    setBuilderSaving(true);
+    const { data: newMaterialId, error } = await supabase.rpc('assemble_bouquet_to_stock', {
+      p_location_id: locationId,
+      p_name: builderName.trim(),
+      p_sale_price: builderTotal,
+      p_items: builderItems.map((it) => ({ material_id: it.id, quantity: it.quantity })),
     });
-    setBuilderItems([]);
-    setShowBuilder(false);
+
+    if (!error && newMaterialId) {
+      if (mode === 'sell') {
+        setCart((prev) => [
+          ...prev,
+          { type: 'material', id: newMaterialId, name: builderName.trim(), price: builderTotal, quantity: 1 },
+        ]);
+      }
+      setBuilderItems([]);
+      setBuilderName('');
+      setShowBuilder(false);
+      loadAll(locationId);
+    }
+    setBuilderSaving(false);
   }
 
   async function searchCustomers(q) {
@@ -304,12 +314,36 @@ export default function SalesPage() {
                         <span>Разом за букет</span>
                         <span>{builderTotal.toFixed(0)} ₴</span>
                       </div>
-                      <button
-                        onClick={addBuilderToCart}
-                        className="w-full bg-forest text-white text-sm py-2 rounded hover:bg-forest/90 mt-2"
-                      >
-                        Додати букет у чек
-                      </button>
+
+                      <div className="pt-2">
+                        <label className="block text-xs text-sage mb-1">Назва або номер букета</label>
+                        <input
+                          value={builderName}
+                          onChange={(e) => setBuilderName(e.target.value)}
+                          placeholder='напр. "Весняний" або №14'
+                          className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <button
+                          onClick={() => assembleBuilder('sell')}
+                          disabled={!builderName.trim() || builderSaving}
+                          className="bg-forest text-white text-sm py-2 rounded hover:bg-forest/90 disabled:opacity-50"
+                        >
+                          Продати зараз
+                        </button>
+                        <button
+                          onClick={() => assembleBuilder('keep')}
+                          disabled={!builderName.trim() || builderSaving}
+                          className="bg-white border border-forest text-forest text-sm py-2 rounded hover:bg-forest/5 disabled:opacity-50"
+                        >
+                          Залишити в магазині
+                        </button>
+                      </div>
+                      {!builderName.trim() && (
+                        <p className="text-xs text-amber mt-1">Вкажіть назву або номер букета.</p>
+                      )}
                     </div>
                   )}
                 </div>

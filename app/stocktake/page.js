@@ -115,7 +115,7 @@ export default function StocktakePage() {
   }
 
   return (
-    <ProtectedPage ownerOnly>
+    <ProtectedPage adminOnly>
       <h1 className="font-display text-2xl text-forest mb-1">Інвентаризація</h1>
       <div className="stem-divider w-16 mb-8" />
 

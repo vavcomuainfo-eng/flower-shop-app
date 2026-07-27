@@ -21,6 +21,18 @@ const ownerLinks = [
   { href: '/sales', label: 'Продажі' },
   { href: '/customers', label: 'Клієнти' },
   { href: '/locations', label: 'Магазини' },
+  { href: '/audit-log', label: 'Журнал дій' },
+];
+
+const adminLinks = [
+  { href: '/sales', label: 'Продажі' },
+  { href: '/assortment', label: 'Асортимент' },
+  { href: '/purchases', label: 'Поповнення складу' },
+  { href: '/stocktake', label: 'Інвентаризація' },
+  { href: '/transfers', label: 'Переміщення' },
+  { href: '/writeoffs', label: 'Списання' },
+  { href: '/repricing', label: 'Переоцінка' },
+  { href: '/customers', label: 'Клієнти' },
 ];
 
 const sellerLinks = [
@@ -31,6 +43,8 @@ const sellerLinks = [
   { href: '/repricing', label: 'Переоцінка' },
   { href: '/customers', label: 'Клієнти' },
 ];
+
+const ROLE_LABELS = { owner: 'CEO BaB', admin: 'Адмін', seller: 'Флорист' };
 
 export default function Nav() {
   const pathname = usePathname();
@@ -70,13 +84,16 @@ export default function Nav() {
     router.refresh();
   }
 
-  const links = role === 'owner' ? ownerLinks : sellerLinks;
+  const links = role === 'owner' ? ownerLinks : role === 'admin' ? adminLinks : sellerLinks;
 
   return (
     <header className="border-b border-sage/30 bg-paper">
       <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
-          <div className="font-display text-xl text-forest">BaB</div>
+          <div className="flex items-center gap-2">
+            <div className="font-display text-xl text-forest">BaB</div>
+            {role && <span className="text-xs text-sage border border-sage/30 rounded-full px-2 py-0.5">{ROLE_LABELS[role] || role}</span>}
+          </div>
           {locations.length > 0 && (
             <select
               value={locationId || ''}
