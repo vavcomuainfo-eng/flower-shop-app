@@ -249,7 +249,7 @@ export default function InventoryPage() {
                   <label className="block text-sm text-sage mb-1">Кількість тут</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     value={form.quantity}
                     onChange={(e) => setForm({ ...form, quantity: e.target.value })}
                     className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
@@ -269,7 +269,7 @@ export default function InventoryPage() {
                   <label className="block text-sm text-sage mb-1">Мінімум тут (поріг)</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     value={form.min_quantity}
                     onChange={(e) => setForm({ ...form, min_quantity: e.target.value })}
                     className="w-full border border-sage/40 rounded px-3 py-2 bg-white"

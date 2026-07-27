@@ -269,7 +269,7 @@ export default function BouquetsPage() {
                       </select>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={it.quantity}
                         onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}
                         className="w-20 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"

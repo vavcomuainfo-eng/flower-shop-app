@@ -280,7 +280,7 @@ export default function PurchasesPage() {
                     </select>
                     <input
                       type="number"
-                      step="0.01"
+                      step="1"
                       placeholder="кількість"
                       value={it.quantity}
                       onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}

@@ -102,7 +102,7 @@ export default function AssortmentPage() {
             <label className="block text-xs text-sage mb-1">Кількість</label>
             <input
               type="number"
-              step="0.01"
+              step="1"
               value={newItem.quantity}
               onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
               className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
@@ -166,7 +166,7 @@ export default function AssortmentPage() {
                     <td className="px-4 py-3">
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={restockAmounts[m.id] || ''}
                         onChange={(e) => setRestockAmounts({ ...restockAmounts, [m.id]: e.target.value })}
                         className="w-24 border border-sage/40 rounded px-2 py-1 bg-white"

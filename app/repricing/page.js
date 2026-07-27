@@ -78,6 +78,12 @@ export default function RepricingPage() {
   }
 
   function applyPercent() {
+    const selectedCount = Object.values(selected).filter(Boolean).length;
+    if (selectedCount === 0) {
+      setMessage('Спочатку відмітьте галочками товари зліва в таблиці (або "виділити все" вгорі стовпця) — відсоток застосовується тільки до обраних.');
+      return;
+    }
+    setMessage('');
     const next = { ...drafts };
     filtered.forEach((m) => {
       if (!selected[m.id]) return;

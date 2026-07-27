@@ -29,6 +29,8 @@ export default function SalesPage() {
   const [customerResults, setCustomerResults] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [lastSaleId, setLastSaleId] = useState(null);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [builderItems, setBuilderItems] = useState([]);
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
@@ -76,6 +78,39 @@ export default function SalesPage() {
 
   function removeFromCart(index) {
     setCart((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addToBuilder(m) {
+    setBuilderItems((prev) => {
+      const existing = prev.find((it) => it.id === m.id);
+      if (existing) {
+        return prev.map((it) => (it.id === m.id ? { ...it, quantity: it.quantity + 1 } : it));
+      }
+      return [...prev, { id: m.id, name: m.name, price: m.sale_price, quantity: 1 }];
+    });
+  }
+
+  function removeFromBuilder(index) {
+    setBuilderItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const builderTotal = builderItems.reduce((sum, it) => sum + it.price * it.quantity, 0);
+
+  function addBuilderToCart() {
+    setCart((prev) => {
+      let next = [...prev];
+      builderItems.forEach((it) => {
+        const idx = next.findIndex((c) => c.type === 'material' && c.id === it.id);
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], quantity: Number(next[idx].quantity) + it.quantity };
+        } else {
+          next = [...next, { type: 'material', id: it.id, name: it.name, price: it.price, quantity: it.quantity }];
+        }
+      });
+      return next;
+    });
+    setBuilderItems([]);
+    setShowBuilder(false);
   }
 
   async function searchCustomers(q) {
@@ -213,9 +248,75 @@ export default function SalesPage() {
           {/* Ліва частина: вибір товару */}
           <div className="lg:col-span-2 space-y-8">
             <div>
-              <h2 className="font-display text-lg text-ink mb-3">Букети</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display text-lg text-ink">Букети</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowBuilder((v) => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-full border ${
+                    showBuilder ? 'bg-forest text-white border-forest' : 'bg-white text-forest border-forest'
+                  }`}
+                >
+                  🌸 Скласти букет із наявного
+                </button>
+              </div>
+
+              {showBuilder && (
+                <div className="bg-white border border-forest/40 rounded p-4 mb-4">
+                  <p className="text-xs text-sage mb-3">
+                    Оберіть квіти й компоненти зі складу — можна натискати кілька разів, щоб збільшити кількість.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                    {materials
+                      .filter((m) => m.sale_price && m.quantity > 0)
+                      .map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => addToBuilder(m)}
+                          className="bg-paper border border-sage/20 rounded p-2 text-left hover:border-forest transition-colors"
+                        >
+                          <p className="text-xs text-ink">{m.name}</p>
+                          <p className="text-xs text-sage">
+                            {m.sale_price} ₴ · є {m.quantity} {m.unit}
+                          </p>
+                        </button>
+                      ))}
+                  </div>
+
+                  {builderItems.length === 0 ? (
+                    <p className="text-xs text-sage">Ще нічого не обрано.</p>
+                  ) : (
+                    <div className="border-t border-sage/20 pt-3 space-y-1">
+                      {builderItems.map((it, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <span>
+                            {it.name} ×{it.quantity}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sage">{(it.price * it.quantity).toFixed(0)} ₴</span>
+                            <button onClick={() => removeFromBuilder(i)} className="text-rose text-xs">
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-2 font-display text-lg text-ink">
+                        <span>Разом за букет</span>
+                        <span>{builderTotal.toFixed(0)} ₴</span>
+                      </div>
+                      <button
+                        onClick={addBuilderToCart}
+                        className="w-full bg-forest text-white text-sm py-2 rounded hover:bg-forest/90 mt-2"
+                      >
+                        Додати букет у чек
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {bouquets.length === 0 ? (
-                <p className="text-sage text-sm">Немає активних букетів. Додайте на сторінці "Букети".</p>
+                <p className="text-sage text-sm">Готових букетів-шаблонів ще немає. Додайте на сторінці "Букети", або скористайтесь конструктором вище.</p>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {bouquets.map((b) => (
@@ -294,7 +395,8 @@ export default function SalesPage() {
                       <span className="flex-1">{c.name}</span>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
+                        min="1"
                         value={c.quantity}
                         onChange={(e) => updateCartQuantity(index, e.target.value)}
                         className="w-14 border border-sage/40 rounded px-1 py-1 bg-white text-center"

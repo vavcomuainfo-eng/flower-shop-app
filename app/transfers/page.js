@@ -6,6 +6,7 @@ import ProtectedPage from '@/components/ProtectedPage';
 
 export default function TransfersPage() {
   const [locations, setLocations] = useState([]);
+  const [allLocations, setAllLocations] = useState([]);
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
   const [fromStock, setFromStock] = useState([]);
@@ -17,11 +18,19 @@ export default function TransfersPage() {
   const [message, setMessage] = useState('');
 
   async function loadLocations() {
-    const { data, error } = await supabase.rpc('get_my_locations');
-    if (!error) {
-      setLocations(data || []);
-      setFromId((prev) => prev || data?.find((l) => l.type === 'warehouse')?.id || data?.[0]?.id || '');
-      setToId((prev) => prev || data?.find((l) => l.type === 'shop')?.id || '');
+    const [mineRes, allRes] = await Promise.all([
+      supabase.rpc('get_my_locations'),
+      supabase.from('locations').select('id, name, type').order('type', { ascending: false }).order('name'),
+    ]);
+    if (!mineRes.error) {
+      const data = mineRes.data || [];
+      setLocations(data);
+      setFromId((prev) => prev || data.find((l) => l.type === 'warehouse')?.id || data[0]?.id || '');
+    }
+    if (!allRes.error) {
+      const data = allRes.data || [];
+      setAllLocations(data);
+      setToId((prev) => prev || data.find((l) => l.type === 'shop')?.id || '');
     }
   }
 
@@ -157,7 +166,7 @@ export default function TransfersPage() {
                   onChange={(e) => setToId(e.target.value)}
                   className="w-full border border-sage/40 rounded px-3 py-2 bg-white text-sm"
                 >
-                  {locations.map((l) => (
+                  {allLocations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.type === 'warehouse' ? '📦 ' : '🏬 '}
                       {l.name}
@@ -201,7 +210,7 @@ export default function TransfersPage() {
                   </select>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     placeholder="кількість"
                     value={it.quantity}
                     onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}

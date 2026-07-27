@@ -176,7 +176,7 @@ export default function StocktakePage() {
                         <td className="px-4 py-3">
                           <input
                             type="number"
-                            step="0.01"
+                            step="1"
                             value={actual}
                             onChange={(e) => updateActual(m.id, e.target.value)}
                             className={`w-24 border rounded px-2 py-1 bg-white ${
