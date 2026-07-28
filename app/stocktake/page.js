@@ -16,7 +16,7 @@ export default function StocktakePage() {
   const [message, setMessage] = useState('');
 
   async function loadLocations() {
-    const { data, error } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false }).order('name');
+    const { data, error } = await supabase.rpc('get_my_locations');
     if (!error) {
       setLocations(data || []);
       setLocationId((prev) => prev || data?.[0]?.id || '');

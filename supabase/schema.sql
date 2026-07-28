@@ -367,13 +367,11 @@ create policy "owner delete sale_items" on sale_items
 -- Захист цін навіть при непрямих операціях
 create or replace function protect_cost_price() returns trigger as $$
 begin
-  if not is_owner() then
+  if not is_admin_or_owner() then
     if tg_op = 'UPDATE' then
       new.cost_price := old.cost_price;
-      new.sale_price := old.sale_price;
     else
       new.cost_price := 0;
-      new.sale_price := 0;
     end if;
   end if;
   return new;
@@ -452,11 +450,11 @@ on conflict (id) do nothing;
 create policy "Public read product images" on storage.objects
   for select using (bucket_id = 'product-images');
 create policy "Owner upload product images" on storage.objects
-  for insert with check (bucket_id = 'product-images' and is_owner());
+  for insert with check (bucket_id = 'product-images' and is_admin_or_owner());
 create policy "Owner update product images" on storage.objects
-  for update using (bucket_id = 'product-images' and is_owner());
+  for update using (bucket_id = 'product-images' and is_admin_or_owner());
 create policy "Owner delete product images" on storage.objects
-  for delete using (bucket_id = 'product-images' and is_owner());
+  for delete using (bucket_id = 'product-images' and is_admin_or_owner());
 
 -- Списання для продавця: рахує собівартість і списує залишок сам,
 -- ніколи не повертаючи ціну викликачу
@@ -585,12 +583,12 @@ $$ language plpgsql security definer;
 create or replace function get_materials_catalog(p_location_id uuid)
 returns table(
   id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric,
-  category_name text, image_url text
+  category_name text, image_url text, category_id uuid
 )
 language sql security definer stable as $$
   select m.id, m.name, m.unit,
     coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price,
-    c.name, m.image_url
+    c.name, m.image_url, m.category_id
   from materials m
   left join stock_levels sl on sl.material_id = m.id and sl.location_id = p_location_id
   left join categories c on c.id = m.category_id
@@ -820,6 +818,54 @@ begin
   update materials set sale_price = ph.old_sale_price, cost_price = coalesce(ph.old_cost_price, cost_price), updated_at = now()
   where id = ph.material_id;
   update price_history set reverted_at = now(), reverted_by = auth.uid() where id = p_id;
+end;
+$$;
+
+-- Часткова переоцінка: якщо частину партії (не всю кількість) треба уцінити —
+-- відділяє вказану кількість в окремий товар "(уцінка)" з новою ціною в тій самій точці
+create or replace function partial_reprice(
+  p_location_id uuid, p_material_id uuid, p_split_quantity numeric,
+  p_new_sale_price numeric, p_new_cost_price numeric default null
+)
+returns uuid
+language plpgsql security definer as $$
+declare
+  mat record;
+  discount_id uuid;
+  can_touch_cost boolean := is_admin_or_owner();
+begin
+  select * into mat from materials where id = p_material_id;
+
+  select id into discount_id from materials
+  where name = mat.name || ' (уцінка)' limit 1;
+
+  if discount_id is null then
+    insert into materials (name, unit, category_id, cost_price, sale_price)
+    values (
+      mat.name || ' (уцінка)', mat.unit, mat.category_id,
+      case when can_touch_cost then coalesce(p_new_cost_price, mat.cost_price) else mat.cost_price end,
+      p_new_sale_price
+    )
+    returning id into discount_id;
+  else
+    update materials set
+      sale_price = p_new_sale_price,
+      cost_price = case when can_touch_cost then coalesce(p_new_cost_price, cost_price) else cost_price end
+    where id = discount_id;
+  end if;
+
+  update stock_levels set quantity = quantity - p_split_quantity, updated_at = now()
+  where location_id = p_location_id and material_id = p_material_id;
+
+  insert into stock_levels (location_id, material_id, quantity)
+  values (p_location_id, discount_id, p_split_quantity)
+  on conflict (location_id, material_id)
+  do update set quantity = stock_levels.quantity + p_split_quantity, updated_at = now();
+
+  insert into price_history (material_id, old_sale_price, new_sale_price, note)
+  values (discount_id, null, p_new_sale_price, 'часткова переоцінка партії');
+
+  return discount_id;
 end;
 $$;
 

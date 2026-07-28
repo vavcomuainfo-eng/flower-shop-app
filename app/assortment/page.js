@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 import { getCurrentLocationId } from '@/lib/location';
+import { getMyRole } from '@/lib/role';
 
 export default function AssortmentPage() {
+  const [role, setRole] = useState(null);
   const [materials, setMaterials] = useState([]);
   const [categories, setCategories] = useState([]);
   const [locationId, setLocationId] = useState(null);
@@ -13,6 +15,8 @@ export default function AssortmentPage() {
   const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '' });
   const [restockAmounts, setRestockAmounts] = useState({});
   const [message, setMessage] = useState('');
+  const [editingPhotoId, setEditingPhotoId] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   async function loadMaterials(locId) {
     setLoading(true);
@@ -22,6 +26,7 @@ export default function AssortmentPage() {
   }
 
   useEffect(() => {
+    getMyRole().then(setRole);
     const locId = getCurrentLocationId();
     setLocationId(locId);
     if (locId) loadMaterials(locId);
@@ -63,6 +68,26 @@ export default function AssortmentPage() {
     });
     setRestockAmounts({ ...restockAmounts, [materialId]: '' });
     loadMaterials(locationId);
+  }
+
+  async function handleCategoryChange(materialId, categoryId) {
+    await supabase.from('materials').update({ category_id: categoryId || null }).eq('id', materialId);
+    loadMaterials(locationId);
+  }
+
+  async function handleImageUpload(materialId, e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from('product-images').upload(fileName, file);
+    if (!error) {
+      const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
+      await supabase.from('materials').update({ image_url: data.publicUrl }).eq('id', materialId);
+      loadMaterials(locationId);
+    }
+    setUploading(false);
   }
 
   if (!locationId && !loading) {
@@ -157,6 +182,39 @@ export default function AssortmentPage() {
                       ) : null}
                       {m.name}
                       {m.category_name && <span className="text-xs text-sage ml-2">({m.category_name})</span>}
+                      {role === 'admin' && (
+                        <>
+                          <button
+                            onClick={() => setEditingPhotoId(editingPhotoId === m.id ? null : m.id)}
+                            className="text-forest text-xs ml-2 hover:underline"
+                          >
+                            🖼️ фото/категорія
+                          </button>
+                          {editingPhotoId === m.id && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 bg-paper border border-sage/20 rounded p-2">
+                              <select
+                                value={m.category_id || ''}
+                                onChange={(e) => handleCategoryChange(m.id, e.target.value)}
+                                className="border border-sage/40 rounded px-2 py-1 bg-white text-xs"
+                              >
+                                <option value="">— без категорії —</option>
+                                {categories.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleImageUpload(m.id, e)}
+                                disabled={uploading}
+                                className="text-xs"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={low ? 'text-amber font-medium' : 'text-ink'}>

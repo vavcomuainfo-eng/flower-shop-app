@@ -27,6 +27,7 @@ const ownerLinks = [
 const adminLinks = [
   { href: '/sales', label: 'Продажі' },
   { href: '/assortment', label: 'Асортимент' },
+  { href: '/inventory', label: 'Залишки' },
   { href: '/purchases', label: 'Поповнення складу' },
   { href: '/stocktake', label: 'Інвентаризація' },
   { href: '/transfers', label: 'Переміщення' },
@@ -38,6 +39,7 @@ const adminLinks = [
 const sellerLinks = [
   { href: '/sales', label: 'Продажі' },
   { href: '/assortment', label: 'Асортимент' },
+  { href: '/inventory', label: 'Залишки' },
   { href: '/transfers', label: 'Переміщення' },
   { href: '/writeoffs', label: 'Списання' },
   { href: '/repricing', label: 'Переоцінка' },

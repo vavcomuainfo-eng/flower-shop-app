@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 import { getCurrentLocationId } from '@/lib/location';
+import { getMyRole } from '@/lib/role';
 
 const emptyForm = {
   id: null,
@@ -19,6 +20,7 @@ const emptyForm = {
 };
 
 export default function InventoryPage() {
+  const [role, setRole] = useState(null);
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -29,18 +31,23 @@ export default function InventoryPage() {
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
 
-  async function loadMaterials(locId) {
+  async function loadMaterials(locId, r) {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('materials')
-      .select('*, suppliers(name), categories(name), stock_levels(quantity, min_quantity, location_id)')
-      .order('name', { ascending: true });
-    if (!error) {
-      const withStock = (data || []).map((m) => {
-        const sl = m.stock_levels?.find((s) => s.location_id === locId);
-        return { ...m, quantity: sl?.quantity || 0, min_quantity: sl?.min_quantity || 0 };
-      });
-      setMaterials(withStock);
+    if (r === 'owner') {
+      const { data, error } = await supabase
+        .from('materials')
+        .select('*, suppliers(name), categories(name), stock_levels(quantity, min_quantity, location_id)')
+        .order('name', { ascending: true });
+      if (!error) {
+        const withStock = (data || []).map((m) => {
+          const sl = m.stock_levels?.find((s) => s.location_id === locId);
+          return { ...m, quantity: sl?.quantity || 0, min_quantity: sl?.min_quantity || 0 };
+        });
+        setMaterials(withStock);
+      }
+    } else {
+      const { data, error } = await supabase.rpc('get_materials_catalog', { p_location_id: locId });
+      if (!error) setMaterials(data || []);
     }
     setLoading(false);
   }
@@ -84,11 +91,18 @@ export default function InventoryPage() {
   }
 
   useEffect(() => {
-    const locId = getCurrentLocationId();
-    setLocationId(locId);
-    if (locId) loadMaterials(locId);
-    loadSuppliers();
-    loadCategories();
+    async function init() {
+      const r = await getMyRole();
+      setRole(r);
+      const locId = getCurrentLocationId();
+      setLocationId(locId);
+      if (locId) loadMaterials(locId, r);
+      if (r === 'owner') {
+        loadSuppliers();
+        loadCategories();
+      }
+    }
+    init();
   }, []);
 
   function openNew() {
@@ -137,37 +151,41 @@ export default function InventoryPage() {
     }
 
     setShowForm(false);
-    loadMaterials(locationId);
+    loadMaterials(locationId, role);
   }
 
   async function handleDelete(id) {
     if (!confirm('Видалити цю позицію зі складу? Це вплине на всі магазини.')) return;
     await supabase.from('materials').delete().eq('id', id);
-    loadMaterials(locationId);
+    loadMaterials(locationId, role);
   }
 
   if (!locationId && !loading) {
     return (
-      <ProtectedPage ownerOnly>
+      <ProtectedPage>
         <p className="text-sage">Оберіть магазин у шапці зверху.</p>
       </ProtectedPage>
     );
   }
 
   return (
-    <ProtectedPage ownerOnly>
+    <ProtectedPage>
       <div className="flex items-center justify-between mb-1">
         <h1 className="font-display text-2xl text-forest">Залишки</h1>
-        <button
-          onClick={openNew}
-          className="bg-rose text-white text-sm px-4 py-2 rounded hover:bg-rose/90 transition-colors"
-        >
-          + Додати позицію
-        </button>
+        {role === 'owner' && (
+          <button
+            onClick={openNew}
+            className="bg-rose text-white text-sm px-4 py-2 rounded hover:bg-rose/90 transition-colors"
+          >
+            + Додати позицію
+          </button>
+        )}
       </div>
       <div className="stem-divider w-16 mb-8" />
       <p className="text-xs text-sage mb-4">
-        Показано залишки для обраного зараз магазину (перемикач у шапці). Назва, ціни й постачальник — спільні на всю мережу.
+        {role === 'owner'
+          ? 'Показано залишки для обраного зараз магазину (перемикач у шапці). Назва, ціни й постачальник — спільні на всю мережу.'
+          : 'Перегляд складу для обраного зараз магазину. Редагувати позиції може лише CEO BaB.'}
       </p>
 
       {loading ? (
@@ -184,10 +202,10 @@ export default function InventoryPage() {
                 <th className="px-4 py-3 font-medium">Категорія</th>
                 <th className="px-4 py-3 font-medium">Кількість тут</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
-                <th className="px-4 py-3 font-medium">Закупівельна ціна</th>
+                {role === 'owner' && <th className="px-4 py-3 font-medium">Закупівельна ціна</th>}
                 <th className="px-4 py-3 font-medium">Роздрібна ціна</th>
-                <th className="px-4 py-3 font-medium">Постачальник</th>
-                <th className="px-4 py-3 font-medium"></th>
+                {role === 'owner' && <th className="px-4 py-3 font-medium">Постачальник</th>}
+                {role === 'owner' && <th className="px-4 py-3 font-medium"></th>}
               </tr>
             </thead>
             <tbody>
@@ -203,23 +221,25 @@ export default function InventoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{m.name}</td>
-                    <td className="px-4 py-3 text-sage">{m.categories?.name || '—'}</td>
+                    <td className="px-4 py-3 text-sage">{m.categories?.name || m.category_name || '—'}</td>
                     <td className="px-4 py-3">
                       <span className={low ? 'text-amber font-medium' : 'text-ink'}>{m.quantity}</span>
                       {low && <span className="text-amber text-xs ml-2">мало</span>}
                     </td>
                     <td className="px-4 py-3 text-sage">{m.unit}</td>
-                    <td className="px-4 py-3">{m.cost_price} ₴</td>
+                    {role === 'owner' && <td className="px-4 py-3">{m.cost_price} ₴</td>}
                     <td className="px-4 py-3">{m.sale_price} ₴</td>
-                    <td className="px-4 py-3 text-sage">{m.suppliers?.name || '—'}</td>
-                    <td className="px-4 py-3 text-right space-x-3">
-                      <button onClick={() => openEdit(m)} className="text-forest hover:underline">
-                        Редагувати
-                      </button>
-                      <button onClick={() => handleDelete(m.id)} className="text-rose hover:underline">
-                        Видалити
-                      </button>
-                    </td>
+                    {role === 'owner' && <td className="px-4 py-3 text-sage">{m.suppliers?.name || '—'}</td>}
+                    {role === 'owner' && (
+                      <td className="px-4 py-3 text-right space-x-3">
+                        <button onClick={() => openEdit(m)} className="text-forest hover:underline">
+                          Редагувати
+                        </button>
+                        <button onClick={() => handleDelete(m.id)} className="text-rose hover:underline">
+                          Видалити
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

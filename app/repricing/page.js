@@ -18,6 +18,15 @@ export default function RepricingPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
+  const [locations, setLocations] = useState([]);
+  const [partialLocationId, setPartialLocationId] = useState('');
+  const [locationStock, setLocationStock] = useState([]);
+  const [partialMaterialId, setPartialMaterialId] = useState('');
+  const [partialQty, setPartialQty] = useState('');
+  const [partialPrice, setPartialPrice] = useState('');
+  const [partialSaving, setPartialSaving] = useState(false);
+  const [partialMessage, setPartialMessage] = useState('');
+
   const isOwner = role === 'owner';
 
   async function loadMaterials(r) {
@@ -58,9 +67,47 @@ export default function RepricingPage() {
       setRole(r);
       if (r !== 'owner') setPriceField('sale_price');
       loadMaterials(r);
+      const { data } = await supabase.rpc('get_my_locations');
+      setLocations(data || []);
+      if (data?.length) setPartialLocationId(data[0].id);
     }
     init();
   }, []);
+
+  useEffect(() => {
+    async function loadStock() {
+      if (!partialLocationId) return;
+      const { data, error } = await supabase.rpc('get_materials_catalog', { p_location_id: partialLocationId });
+      if (!error) setLocationStock(data || []);
+    }
+    loadStock();
+  }, [partialLocationId]);
+
+  async function handlePartialReprice() {
+    if (!partialMaterialId || !partialQty || !partialPrice) {
+      setPartialMessage('Заповніть товар, кількість і нову ціну.');
+      return;
+    }
+    setPartialSaving(true);
+    setPartialMessage('');
+    const { error } = await supabase.rpc('partial_reprice', {
+      p_location_id: partialLocationId,
+      p_material_id: partialMaterialId,
+      p_split_quantity: Number(partialQty),
+      p_new_sale_price: Number(partialPrice),
+    });
+    if (error) {
+      setPartialMessage('Помилка: ' + error.message);
+    } else {
+      setPartialMessage('Готово — частину партії уцінено й відокремлено як "(уцінка)".');
+      setPartialQty('');
+      setPartialPrice('');
+      loadMaterials(role);
+      const { data } = await supabase.rpc('get_materials_catalog', { p_location_id: partialLocationId });
+      setLocationStock(data || []);
+    }
+    setPartialSaving(false);
+  }
 
   const filtered = materials.filter(
     (m) => categoryFilter === 'Усі' || m.category_name === categoryFilter
@@ -189,6 +236,74 @@ export default function RepricingPage() {
                 Обрано: {Object.values(selected).filter(Boolean).length}
               </p>
             </div>
+          </div>
+
+          <div className="bg-white border border-amber/40 rounded p-5 mb-6">
+            <h2 className="font-display text-lg text-ink mb-1">Уцінити частину партії</h2>
+            <p className="text-xs text-sage mb-3">
+              Коли під однією назвою є і свіжий товар, і той, що треба уцінити — ця частина відокремиться в
+              окрему позицію "(уцінка)" з новою ціною, а решта лишиться за старою ціною.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-sage mb-1">Магазин</label>
+                <select
+                  value={partialLocationId}
+                  onChange={(e) => setPartialLocationId(e.target.value)}
+                  className="border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                >
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.type === 'warehouse' ? '📦 ' : '🏬 '}
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-sage mb-1">Товар</label>
+                <select
+                  value={partialMaterialId}
+                  onChange={(e) => setPartialMaterialId(e.target.value)}
+                  className="border border-sage/40 rounded px-2 py-1.5 bg-white text-sm min-w-[160px]"
+                >
+                  <option value="">— оберіть —</option>
+                  {locationStock.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} (є: {m.quantity} {m.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-sage mb-1">Кількість для уцінки</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={partialQty}
+                  onChange={(e) => setPartialQty(e.target.value)}
+                  className="w-28 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-sage mb-1">Нова ціна (роздрібна)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={partialPrice}
+                  onChange={(e) => setPartialPrice(e.target.value)}
+                  className="w-28 border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                />
+              </div>
+              <button
+                onClick={handlePartialReprice}
+                disabled={partialSaving}
+                className="bg-amber text-white text-sm px-4 py-2 rounded hover:opacity-90 disabled:opacity-50"
+              >
+                {partialSaving ? 'Зберігаємо...' : 'Уцінити'}
+              </button>
+            </div>
+            {partialMessage && <p className="text-xs text-leaf mt-2">{partialMessage}</p>}
           </div>
 
           {categories.length > 0 && (
