@@ -25,6 +25,10 @@ export default function InventoryPage() {
   const [suppliers, setSuppliers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [showCategories, setShowCategories] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -74,6 +78,21 @@ export default function InventoryPage() {
       await loadCategories();
       setForm((f) => ({ ...f, category_id: data.id }));
     }
+  }
+
+  async function handleRenameCategory(id) {
+    if (!editingCategoryName.trim()) return;
+    await supabase.from('categories').update({ name: editingCategoryName.trim() }).eq('id', id);
+    setEditingCategoryId(null);
+    loadCategories();
+    loadMaterials(locationId, role);
+  }
+
+  async function handleDeleteCategory(id) {
+    if (!confirm('Видалити цю категорію? У товарів, де вона стояла, категорія стане порожньою.')) return;
+    await supabase.from('categories').delete().eq('id', id);
+    loadCategories();
+    loadMaterials(locationId, role);
   }
 
   async function handleImageUpload(e) {
@@ -188,6 +207,59 @@ export default function InventoryPage() {
           : 'Перегляд складу для обраного зараз магазину. Редагувати позиції може лише CEO BaB.'}
       </p>
 
+      {role === 'owner' && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowCategories((v) => !v)}
+            className="text-forest text-sm hover:underline"
+          >
+            {showCategories ? 'Сховати категорії' : 'Керувати категоріями'}
+          </button>
+          {showCategories && (
+            <div className="bg-white border border-sage/20 rounded p-4 mt-2 max-w-sm">
+              {categories.length === 0 && <p className="text-sage text-sm">Категорій ще немає.</p>}
+              <div className="space-y-2">
+                {categories.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2">
+                    {editingCategoryId === c.id ? (
+                      <>
+                        <input
+                          value={editingCategoryName}
+                          onChange={(e) => setEditingCategoryName(e.target.value)}
+                          className="flex-1 border border-sage/40 rounded px-2 py-1 bg-white text-sm"
+                        />
+                        <button onClick={() => handleRenameCategory(c.id)} className="text-forest text-xs hover:underline">
+                          Зберегти
+                        </button>
+                        <button onClick={() => setEditingCategoryId(null)} className="text-sage text-xs">
+                          Скасувати
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm">{c.name}</span>
+                        <button
+                          onClick={() => {
+                            setEditingCategoryId(c.id);
+                            setEditingCategoryName(c.name);
+                          }}
+                          className="text-forest text-xs hover:underline"
+                        >
+                          Перейменувати
+                        </button>
+                        <button onClick={() => handleDeleteCategory(c.id)} className="text-rose text-xs hover:underline">
+                          Видалити
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sage">Завантаження...</p>
       ) : materials.length === 0 ? (
@@ -210,12 +282,18 @@ export default function InventoryPage() {
             </thead>
             <tbody>
               {materials.map((m) => {
-                const low = m.quantity <= m.min_quantity;
+                const isZero = Number(m.quantity) === 0;
+                const low = !isZero && m.quantity <= m.min_quantity;
                 return (
                   <tr key={m.id} className="border-b border-sage/10 last:border-0">
                     <td className="px-4 py-3">
                       {m.image_url ? (
-                        <img src={m.image_url} alt={m.name} className="w-10 h-10 rounded object-cover" />
+                        <img
+                          src={m.image_url}
+                          alt={m.name}
+                          onClick={() => setZoomedImage(zoomedImage === m.image_url ? null : m.image_url)}
+                          className="w-10 h-10 rounded object-cover cursor-zoom-in"
+                        />
                       ) : (
                         <div className="w-10 h-10 rounded bg-sage/10" />
                       )}
@@ -223,7 +301,9 @@ export default function InventoryPage() {
                     <td className="px-4 py-3">{m.name}</td>
                     <td className="px-4 py-3 text-sage">{m.categories?.name || m.category_name || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={low ? 'text-amber font-medium' : 'text-ink'}>{m.quantity}</span>
+                      <span className={isZero ? 'text-rose font-medium' : low ? 'text-amber font-medium' : 'text-ink'}>
+                        {m.quantity}
+                      </span>
                       {low && <span className="text-amber text-xs ml-2">мало</span>}
                     </td>
                     <td className="px-4 py-3 text-sage">{m.unit}</td>
@@ -388,6 +468,15 @@ export default function InventoryPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          className="fixed inset-0 bg-ink/70 flex items-center justify-center z-20 cursor-zoom-out p-6"
+        >
+          <img src={zoomedImage} alt="" className="max-w-2xl max-h-[80vh] rounded shadow-xl" />
         </div>
       )}
     </ProtectedPage>

@@ -17,6 +17,7 @@ export default function AssortmentPage() {
   const [message, setMessage] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState(null);
 
   async function loadMaterials(locId) {
     setLoading(true);
@@ -173,12 +174,18 @@ export default function AssortmentPage() {
             </thead>
             <tbody>
               {materials.map((m) => {
-                const low = m.quantity <= m.min_quantity;
+                const isZero = Number(m.quantity) === 0;
+                const low = !isZero && m.quantity <= m.min_quantity;
                 return (
                   <tr key={m.id} className="border-b border-sage/10 last:border-0">
                     <td className="px-4 py-3">
                       {m.image_url ? (
-                        <img src={m.image_url} alt="" className="w-8 h-8 rounded object-cover inline-block mr-2 align-middle" />
+                        <img
+                          src={m.image_url}
+                          alt=""
+                          onClick={() => setZoomedImage(zoomedImage === m.image_url ? null : m.image_url)}
+                          className="w-8 h-8 rounded object-cover inline-block mr-2 align-middle cursor-zoom-in"
+                        />
                       ) : null}
                       {m.name}
                       {m.category_name && <span className="text-xs text-sage ml-2">({m.category_name})</span>}
@@ -217,9 +224,10 @@ export default function AssortmentPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={low ? 'text-amber font-medium' : 'text-ink'}>
+                      <span className={isZero ? 'text-rose font-medium' : low ? 'text-amber font-medium' : 'text-ink'}>
                         {m.quantity} {m.unit}
                       </span>
+                      {low && <span className="text-amber text-xs ml-2">мало</span>}
                     </td>
                     <td className="px-4 py-3">
                       <input
@@ -240,6 +248,15 @@ export default function AssortmentPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          className="fixed inset-0 bg-ink/70 flex items-center justify-center z-20 cursor-zoom-out p-6"
+        >
+          <img src={zoomedImage} alt="" className="max-w-2xl max-h-[80vh] rounded shadow-xl" />
         </div>
       )}
     </ProtectedPage>

@@ -27,11 +27,11 @@ export default function RepricingPage() {
   const [partialSaving, setPartialSaving] = useState(false);
   const [partialMessage, setPartialMessage] = useState('');
 
-  const isOwner = role === 'owner';
+  const canEditCost = role === 'owner' || role === 'admin';
 
   async function loadMaterials(r) {
     setLoading(true);
-    if (r === 'owner') {
+    if (r === 'owner' || r === 'admin') {
       const [mRes, cRes] = await Promise.all([
         supabase.from('materials').select('id, name, cost_price, sale_price, categories(name)').order('name'),
         supabase.from('categories').select('id, name').order('name'),
@@ -155,7 +155,7 @@ export default function RepricingPage() {
       if (!draft) continue;
       const newSale = Number(draft.sale_price);
 
-      if (isOwner) {
+      if (canEditCost) {
         const newCost = Number(draft.cost_price);
         if (newSale === Number(m.sale_price) && newCost === Number(m.cost_price)) continue;
 
@@ -191,7 +191,7 @@ export default function RepricingPage() {
     <ProtectedPage>
       <h1 className="font-display text-2xl text-forest mb-1">Переоцінка</h1>
       <div className="stem-divider w-16 mb-8" />
-      {!isOwner && role && (
+      {!canEditCost && role && (
         <p className="text-xs text-sage -mt-6 mb-8">
           Ви бачите й можете змінювати лише роздрібну ціну. Закупівельна лишається видимою тільки власнику.
         </p>
@@ -203,7 +203,7 @@ export default function RepricingPage() {
         <>
           <div className="bg-white border border-sage/20 rounded p-5 mb-6">
             <div className="flex flex-wrap items-end gap-3">
-              {isOwner && (
+              {canEditCost && (
                 <div>
                   <label className="block text-xs text-sage mb-1">Яку ціну міняти</label>
                   <select
@@ -330,14 +330,14 @@ export default function RepricingPage() {
                     <input type="checkbox" onChange={toggleSelectAll} />
                   </th>
                   <th className="px-4 py-3 font-medium">Назва</th>
-                  {isOwner && <th className="px-4 py-3 font-medium">Закупівельна (зараз → нова)</th>}
+                  {canEditCost && <th className="px-4 py-3 font-medium">Закупівельна (зараз → нова)</th>}
                   <th className="px-4 py-3 font-medium">Роздрібна (зараз → нова)</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((m) => {
                   const draft = drafts[m.id] || {};
-                  const costChanged = isOwner && Number(draft.cost_price) !== Number(m.cost_price);
+                  const costChanged = canEditCost && Number(draft.cost_price) !== Number(m.cost_price);
                   const saleChanged = Number(draft.sale_price) !== Number(m.sale_price);
                   return (
                     <tr key={m.id} className="border-b border-sage/10 last:border-0">
@@ -349,7 +349,7 @@ export default function RepricingPage() {
                         />
                       </td>
                       <td className="px-4 py-3">{m.name}</td>
-                      {isOwner && (
+                      {canEditCost && (
                         <td className="px-4 py-3">
                           <span className="text-sage">{m.cost_price} ₴ → </span>
                           <input
