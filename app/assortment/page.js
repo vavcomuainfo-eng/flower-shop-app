@@ -12,7 +12,9 @@ export default function AssortmentPage() {
   const [categories, setCategories] = useState([]);
   const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '' });
+  const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '', sale_price: 0, manufacturer_id: '' });
+  const [manufacturers, setManufacturers] = useState([]);
+  const [newManufacturerName, setNewManufacturerName] = useState('');
   const [restockAmounts, setRestockAmounts] = useState({});
   const [message, setMessage] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
@@ -39,6 +41,13 @@ export default function AssortmentPage() {
       .then(({ data, error }) => {
         if (!error) setCategories(data || []);
       });
+    supabase
+      .from('manufacturers')
+      .select('id, name')
+      .order('name')
+      .then(({ data, error }) => {
+        if (!error) setManufacturers(data || []);
+      });
   }, []);
 
   async function handleAdd(e) {
@@ -51,9 +60,11 @@ export default function AssortmentPage() {
       p_min_quantity: Number(newItem.min_quantity),
       p_location_id: locationId,
       p_category_id: newItem.category_id || null,
+      p_sale_price: role === 'admin' ? Number(newItem.sale_price || 0) : 0,
+      p_manufacturer_id: newItem.manufacturer_id || null,
     });
     if (!error) {
-      setNewItem({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '' });
+      setNewItem({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '', sale_price: 0, manufacturer_id: '' });
       setMessage('Додано.');
       loadMaterials(locationId);
     }
@@ -74,6 +85,25 @@ export default function AssortmentPage() {
   async function handleCategoryChange(materialId, categoryId) {
     await supabase.from('materials').update({ category_id: categoryId || null }).eq('id', materialId);
     loadMaterials(locationId);
+  }
+
+  async function handleManufacturerChange(materialId, manufacturerId) {
+    await supabase.from('materials').update({ manufacturer_id: manufacturerId || null }).eq('id', materialId);
+    loadMaterials(locationId);
+  }
+
+  async function handleAddManufacturer() {
+    if (!newManufacturerName.trim()) return;
+    const { data, error } = await supabase
+      .from('manufacturers')
+      .insert({ name: newManufacturerName.trim() })
+      .select()
+      .single();
+    if (!error && data) {
+      setNewManufacturerName('');
+      const { data: list } = await supabase.from('manufacturers').select('id, name').order('name');
+      setManufacturers(list || []);
+    }
   }
 
   async function handleImageUpload(materialId, e) {
@@ -103,6 +133,20 @@ export default function AssortmentPage() {
     <ProtectedPage>
       <h1 className="font-display text-2xl text-forest mb-1">Асортимент</h1>
       <div className="stem-divider w-16 mb-8" />
+
+      {role === 'admin' && (
+        <div className="flex items-center gap-2 mb-6">
+          <input
+            placeholder="Новий виробник..."
+            value={newManufacturerName}
+            onChange={(e) => setNewManufacturerName(e.target.value)}
+            className="border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+          />
+          <button onClick={handleAddManufacturer} className="text-forest text-sm hover:underline whitespace-nowrap">
+            + Додати виробника
+          </button>
+        </div>
+      )}
 
       <div className="bg-white border border-sage/20 rounded p-5 mb-8">
         <h2 className="font-display text-lg text-ink mb-3">Додати нову позицію</h2>
@@ -149,6 +193,35 @@ export default function AssortmentPage() {
               ))}
             </select>
           </div>
+          {role === 'admin' && (
+            <>
+              <div>
+                <label className="block text-xs text-sage mb-1">Роздрібна ціна</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newItem.sale_price}
+                  onChange={(e) => setNewItem({ ...newItem, sale_price: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-sage mb-1">Виробник</label>
+                <select
+                  value={newItem.manufacturer_id}
+                  onChange={(e) => setNewItem({ ...newItem, manufacturer_id: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-2 py-1.5 bg-white text-sm"
+                >
+                  <option value="">— не вказано —</option>
+                  {manufacturers.map((mf) => (
+                    <option key={mf.id} value={mf.id}>
+                      {mf.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
           <button type="submit" className="bg-forest text-white text-sm px-4 py-2 rounded hover:bg-forest/90">
             Додати
           </button>
@@ -195,7 +268,7 @@ export default function AssortmentPage() {
                             onClick={() => setEditingPhotoId(editingPhotoId === m.id ? null : m.id)}
                             className="text-forest text-xs ml-2 hover:underline"
                           >
-                            🖼️ фото/категорія
+                            🖼️ фото/категорія/виробник
                           </button>
                           {editingPhotoId === m.id && (
                             <div className="mt-2 flex flex-wrap items-center gap-2 bg-paper border border-sage/20 rounded p-2">
@@ -208,6 +281,18 @@ export default function AssortmentPage() {
                                 {categories.map((c) => (
                                   <option key={c.id} value={c.id}>
                                     {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={m.manufacturer_id || ''}
+                                onChange={(e) => handleManufacturerChange(m.id, e.target.value)}
+                                className="border border-sage/40 rounded px-2 py-1 bg-white text-xs"
+                              >
+                                <option value="">— без виробника —</option>
+                                {manufacturers.map((mf) => (
+                                  <option key={mf.id} value={mf.id}>
+                                    {mf.name}
                                   </option>
                                 ))}
                               </select>

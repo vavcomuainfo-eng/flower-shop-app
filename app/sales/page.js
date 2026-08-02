@@ -395,7 +395,7 @@ export default function SalesPage() {
                         <button
                           key={m.id}
                           onClick={() => addToCart('material', m)}
-                          disabled={!m.sale_price}
+                          disabled={!m.sale_price || m.quantity <= 0}
                           className="bg-white border border-sage/20 rounded p-3 text-left hover:border-forest transition-colors disabled:opacity-40"
                         >
                           {m.image_url && (
@@ -403,7 +403,11 @@ export default function SalesPage() {
                           )}
                           <p className="text-sm text-ink">{m.name}</p>
                           <p className="text-xs text-sage">
-                            {m.sale_price ? `${m.sale_price} ₴` : 'ціну ще не задано'} · залишок: {m.quantity} {m.unit}
+                            {!m.sale_price
+                              ? 'ціну ще не задано'
+                              : m.quantity <= 0
+                              ? 'немає в наявності'
+                              : `${m.sale_price} ₴ · залишок: ${m.quantity} ${m.unit}`}
                           </p>
                         </button>
                       ))}

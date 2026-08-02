@@ -77,6 +77,7 @@ create table if not exists materials (
   name text not null,                 -- напр. "Троянда червона 60см"
   unit text not null default 'шт',    -- шт, м, уп тощо
   category_id uuid references categories(id) on delete set null,
+  manufacturer_id uuid references manufacturers(id) on delete set null,
   image_url text,
   cost_price numeric not null default 0,   -- закупівельна ціна за одиницю (бачить лише власник)
   sale_price numeric not null default 0,   -- фіксована роздрібна ціна для прямого продажу (бачить каса)
@@ -281,6 +282,7 @@ alter table customers enable row level security;
 alter table locations enable row level security;
 alter table profile_locations enable row level security;
 alter table categories enable row level security;
+alter table manufacturers enable row level security;
 alter table transfers enable row level security;
 alter table transfer_items enable row level security;
 alter table write_offs enable row level security;
@@ -325,6 +327,15 @@ create policy "owner update categories" on categories
   for update using (is_owner()) with check (is_owner());
 create policy "owner delete categories" on categories
   for delete using (is_owner());
+
+create policy "authenticated can view manufacturers" on manufacturers
+  for select using (auth.role() = 'authenticated');
+create policy "admin or owner manage manufacturers" on manufacturers
+  for insert with check (is_admin_or_owner());
+create policy "admin or owner update manufacturers" on manufacturers
+  for update using (is_admin_or_owner()) with check (is_admin_or_owner());
+create policy "admin or owner delete manufacturers" on manufacturers
+  for delete using (is_admin_or_owner());
 
 create policy "authenticated full access on transfers" on transfers
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -583,29 +594,38 @@ $$ language plpgsql security definer;
 create or replace function get_materials_catalog(p_location_id uuid)
 returns table(
   id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric,
-  category_name text, image_url text, category_id uuid
+  category_name text, image_url text, category_id uuid, manufacturer_name text, manufacturer_id uuid
 )
 language sql security definer stable as $$
   select m.id, m.name, m.unit,
     coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price,
-    c.name, m.image_url, m.category_id
+    c.name, m.image_url, m.category_id, mf.name, m.manufacturer_id
   from materials m
   left join stock_levels sl on sl.material_id = m.id and sl.location_id = p_location_id
   left join categories c on c.id = m.category_id
+  left join manufacturers mf on mf.id = m.manufacturer_id
   order by m.name;
 $$;
 
+-- ---------- ВИРОБНИКИ ----------
+create table if not exists manufacturers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
 create or replace function add_material(
   p_name text, p_unit text, p_quantity numeric, p_min_quantity numeric default 0,
-  p_location_id uuid default null, p_category_id uuid default null
+  p_location_id uuid default null, p_category_id uuid default null,
+  p_sale_price numeric default 0, p_manufacturer_id uuid default null
 )
 returns uuid
 language plpgsql security definer as $$
 declare
   new_id uuid;
 begin
-  insert into materials (name, unit, cost_price, sale_price, category_id)
-  values (p_name, p_unit, 0, 0, p_category_id)
+  insert into materials (name, unit, cost_price, sale_price, category_id, manufacturer_id)
+  values (p_name, p_unit, 0, p_sale_price, p_category_id, p_manufacturer_id)
   returning id into new_id;
 
   if p_location_id is not null then

@@ -16,12 +16,15 @@ const emptyForm = {
   sale_price: 0,
   supplier_id: '',
   category_id: '',
+  manufacturer_id: '',
   image_url: '',
 };
 
 export default function InventoryPage() {
   const [role, setRole] = useState(null);
   const [materials, setMaterials] = useState([]);
+  const [manufacturers, setManufacturers] = useState([]);
+  const [newManufacturerName, setNewManufacturerName] = useState('');
   const [suppliers, setSuppliers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -40,7 +43,7 @@ export default function InventoryPage() {
     if (r === 'owner') {
       const { data, error } = await supabase
         .from('materials')
-        .select('*, suppliers(name), categories(name), stock_levels(quantity, min_quantity, location_id)')
+        .select('*, suppliers(name), categories(name), manufacturers(name), stock_levels(quantity, min_quantity, location_id)')
         .order('name', { ascending: true });
       if (!error) {
         const withStock = (data || []).map((m) => {
@@ -64,6 +67,25 @@ export default function InventoryPage() {
   async function loadCategories() {
     const { data, error } = await supabase.from('categories').select('id, name').order('name');
     if (!error) setCategories(data || []);
+  }
+
+  async function loadManufacturers() {
+    const { data, error } = await supabase.from('manufacturers').select('id, name').order('name');
+    if (!error) setManufacturers(data || []);
+  }
+
+  async function handleAddManufacturer() {
+    if (!newManufacturerName.trim()) return;
+    const { data, error } = await supabase
+      .from('manufacturers')
+      .insert({ name: newManufacturerName.trim() })
+      .select()
+      .single();
+    if (!error && data) {
+      setNewManufacturerName('');
+      await loadManufacturers();
+      setForm((f) => ({ ...f, manufacturer_id: data.id }));
+    }
   }
 
   async function handleAddCategory() {
@@ -119,6 +141,7 @@ export default function InventoryPage() {
       if (r === 'owner') {
         loadSuppliers();
         loadCategories();
+        loadManufacturers();
       }
     }
     init();
@@ -143,6 +166,7 @@ export default function InventoryPage() {
       sale_price: Number(form.sale_price),
       supplier_id: form.supplier_id || null,
       category_id: form.category_id || null,
+      manufacturer_id: form.manufacturer_id || null,
       image_url: form.image_url || null,
       updated_at: new Date().toISOString(),
     };
@@ -208,13 +232,28 @@ export default function InventoryPage() {
       </p>
 
       {role === 'owner' && (
-        <div className="mb-6">
+        <div className="mb-6 flex flex-wrap items-center gap-4">
           <button
             onClick={() => setShowCategories((v) => !v)}
             className="text-forest text-sm hover:underline"
           >
             {showCategories ? 'Сховати категорії' : 'Керувати категоріями'}
           </button>
+          <div className="flex items-center gap-2">
+            <input
+              placeholder="Новий виробник..."
+              value={newManufacturerName}
+              onChange={(e) => setNewManufacturerName(e.target.value)}
+              className="border border-sage/40 rounded px-2 py-1 bg-white text-sm"
+            />
+            <button onClick={handleAddManufacturer} className="text-forest text-sm hover:underline whitespace-nowrap">
+              + Додати виробника
+            </button>
+          </div>
+        </div>
+      )}
+      {role === 'owner' && (
+        <div className="mb-6">
           {showCategories && (
             <div className="bg-white border border-sage/20 rounded p-4 mt-2 max-w-sm">
               {categories.length === 0 && <p className="text-sage text-sm">Категорій ще немає.</p>}
@@ -272,6 +311,7 @@ export default function InventoryPage() {
                 <th className="px-4 py-3 font-medium"></th>
                 <th className="px-4 py-3 font-medium">Назва</th>
                 <th className="px-4 py-3 font-medium">Категорія</th>
+                <th className="px-4 py-3 font-medium">Виробник</th>
                 <th className="px-4 py-3 font-medium">Кількість тут</th>
                 <th className="px-4 py-3 font-medium">Од.</th>
                 {role === 'owner' && <th className="px-4 py-3 font-medium">Закупівельна ціна</th>}
@@ -300,6 +340,7 @@ export default function InventoryPage() {
                     </td>
                     <td className="px-4 py-3">{m.name}</td>
                     <td className="px-4 py-3 text-sage">{m.categories?.name || m.category_name || '—'}</td>
+                    <td className="px-4 py-3 text-sage">{m.manufacturers?.name || m.manufacturer_name || '—'}</td>
                     <td className="px-4 py-3">
                       <span className={isZero ? 'text-rose font-medium' : low ? 'text-amber font-medium' : 'text-ink'}>
                         {m.quantity}
@@ -427,6 +468,21 @@ export default function InventoryPage() {
                     + додати
                   </button>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm text-sage mb-1">Виробник</label>
+                <select
+                  value={form.manufacturer_id || ''}
+                  onChange={(e) => setForm({ ...form, manufacturer_id: e.target.value })}
+                  className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
+                >
+                  <option value="">— не вказано —</option>
+                  {manufacturers.map((mf) => (
+                    <option key={mf.id} value={mf.id}>
+                      {mf.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

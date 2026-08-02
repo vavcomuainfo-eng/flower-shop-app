@@ -27,11 +27,11 @@ export default function RepricingPage() {
   const [partialSaving, setPartialSaving] = useState(false);
   const [partialMessage, setPartialMessage] = useState('');
 
-  const canEditCost = role === 'owner' || role === 'admin';
+  const canEditCost = role === 'owner';
 
   async function loadMaterials(r) {
     setLoading(true);
-    if (r === 'owner' || r === 'admin') {
+    if (r === 'owner') {
       const [mRes, cRes] = await Promise.all([
         supabase.from('materials').select('id, name, cost_price, sale_price, categories(name)').order('name'),
         supabase.from('categories').select('id, name').order('name'),
