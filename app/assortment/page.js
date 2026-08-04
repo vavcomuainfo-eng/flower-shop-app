@@ -96,10 +96,14 @@ export default function AssortmentPage() {
     if (!newManufacturerName.trim()) return;
     const { data, error } = await supabase
       .from('manufacturers')
-      .insert({ name: newManufacturerName.trim() })
+      .upsert({ name: newManufacturerName.trim() }, { onConflict: 'name' })
       .select()
       .single();
-    if (!error && data) {
+    if (error) {
+      alert('Не вдалося додати виробника: ' + error.message);
+      return;
+    }
+    if (data) {
       setNewManufacturerName('');
       const { data: list } = await supabase.from('manufacturers').select('id, name').order('name');
       setManufacturers(list || []);

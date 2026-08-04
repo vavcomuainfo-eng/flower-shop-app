@@ -90,6 +90,9 @@ export default function RepricingPage() {
     }
     setPartialSaving(true);
     setPartialMessage('');
+    const materialName = locationStock.find((m) => m.id === partialMaterialId)?.name || 'товар';
+    const qtyUsed = partialQty;
+    const priceUsed = partialPrice;
     const { error } = await supabase.rpc('partial_reprice', {
       p_location_id: partialLocationId,
       p_material_id: partialMaterialId,
@@ -99,7 +102,9 @@ export default function RepricingPage() {
     if (error) {
       setPartialMessage('Помилка: ' + error.message);
     } else {
-      setPartialMessage('Готово — частину партії уцінено й відокремлено як "(уцінка)".');
+      setPartialMessage(
+        `Готово — уцінено ${qtyUsed} шт "${materialName}" до ${priceUsed} ₴, решта лишилась за старою ціною.`
+      );
       setPartialQty('');
       setPartialPrice('');
       loadMaterials(role);

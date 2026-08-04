@@ -883,7 +883,7 @@ begin
   do update set quantity = stock_levels.quantity + p_split_quantity, updated_at = now();
 
   insert into price_history (material_id, old_sale_price, new_sale_price, note)
-  values (discount_id, null, p_new_sale_price, 'часткова переоцінка партії');
+  values (discount_id, null, p_new_sale_price, 'часткова уцінка партії: ' || p_split_quantity || ' шт');
 
   return discount_id;
 end;

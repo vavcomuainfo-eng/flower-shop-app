@@ -32,6 +32,52 @@ export default function InventoryPage() {
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [showCategories, setShowCategories] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState('asc');
+
+  function toggleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function sortValue(m, key) {
+    switch (key) {
+      case 'name':
+        return (m.name || '').toLowerCase();
+      case 'category':
+        return (m.categories?.name || m.category_name || '').toLowerCase();
+      case 'manufacturer':
+        return (m.manufacturers?.name || m.manufacturer_name || '').toLowerCase();
+      case 'quantity':
+        return Number(m.quantity) || 0;
+      case 'unit':
+        return (m.unit || '').toLowerCase();
+      case 'cost_price':
+        return Number(m.cost_price) || 0;
+      case 'sale_price':
+        return Number(m.sale_price) || 0;
+      case 'supplier':
+        return (m.suppliers?.name || '').toLowerCase();
+      default:
+        return '';
+    }
+  }
+
+  function ThSort({ label, field }) {
+    const active = sortKey === field;
+    return (
+      <th
+        onClick={() => toggleSort(field)}
+        className="px-4 py-3 font-medium cursor-pointer select-none hover:text-forest whitespace-nowrap"
+      >
+        {label} {active && (sortDir === 'asc' ? '▲' : '▼')}
+      </th>
+    );
+  }
   const [uploading, setUploading] = useState(false);
   const [locationId, setLocationId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -78,10 +124,14 @@ export default function InventoryPage() {
     if (!newManufacturerName.trim()) return;
     const { data, error } = await supabase
       .from('manufacturers')
-      .insert({ name: newManufacturerName.trim() })
+      .upsert({ name: newManufacturerName.trim() }, { onConflict: 'name' })
       .select()
       .single();
-    if (!error && data) {
+    if (error) {
+      alert('Не вдалося додати виробника: ' + error.message);
+      return;
+    }
+    if (data) {
       setNewManufacturerName('');
       await loadManufacturers();
       setForm((f) => ({ ...f, manufacturer_id: data.id }));
@@ -309,19 +359,29 @@ export default function InventoryPage() {
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium"></th>
-                <th className="px-4 py-3 font-medium">Назва</th>
-                <th className="px-4 py-3 font-medium">Категорія</th>
-                <th className="px-4 py-3 font-medium">Виробник</th>
-                <th className="px-4 py-3 font-medium">Кількість тут</th>
-                <th className="px-4 py-3 font-medium">Од.</th>
-                {role === 'owner' && <th className="px-4 py-3 font-medium">Закупівельна ціна</th>}
-                <th className="px-4 py-3 font-medium">Роздрібна ціна</th>
-                {role === 'owner' && <th className="px-4 py-3 font-medium">Постачальник</th>}
+                <ThSort label="Назва" field="name" />
+                <ThSort label="Категорія" field="category" />
+                <ThSort label="Виробник" field="manufacturer" />
+                <ThSort label="Кількість тут" field="quantity" />
+                <ThSort label="Од." field="unit" />
+                {role === 'owner' && <ThSort label="Закупівельна ціна" field="cost_price" />}
+                <ThSort label="Роздрібна ціна" field="sale_price" />
+                {role === 'owner' && <ThSort label="Постачальник" field="supplier" />}
                 {role === 'owner' && <th className="px-4 py-3 font-medium"></th>}
               </tr>
             </thead>
             <tbody>
-              {materials.map((m) => {
+              {(sortKey
+                ? [...materials].sort((a, b) => {
+                    const va = sortValue(a, sortKey);
+                    const vb = sortValue(b, sortKey);
+                    if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va;
+                    return sortDir === 'asc'
+                      ? String(va).localeCompare(String(vb), 'uk')
+                      : String(vb).localeCompare(String(va), 'uk');
+                  })
+                : materials
+              ).map((m) => {
                 const isZero = Number(m.quantity) === 0;
                 const low = !isZero && m.quantity <= m.min_quantity;
                 return (
