@@ -32,49 +32,96 @@ export default function InventoryPage() {
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [showCategories, setShowCategories] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
-  const [sortKey, setSortKey] = useState(null);
-  const [sortDir, setSortDir] = useState('asc');
+  const [openFilter, setOpenFilter] = useState(null);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [activeFilters, setActiveFilters] = useState({});
 
-  function toggleSort(key) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
-    }
-  }
-
-  function sortValue(m, key) {
+  function fieldValue(m, key) {
     switch (key) {
       case 'name':
-        return (m.name || '').toLowerCase();
+        return m.name || '';
       case 'category':
-        return (m.categories?.name || m.category_name || '').toLowerCase();
+        return m.categories?.name || m.category_name || '';
       case 'manufacturer':
-        return (m.manufacturers?.name || m.manufacturer_name || '').toLowerCase();
-      case 'quantity':
-        return Number(m.quantity) || 0;
-      case 'unit':
-        return (m.unit || '').toLowerCase();
+        return m.manufacturers?.name || m.manufacturer_name || '';
       case 'cost_price':
-        return Number(m.cost_price) || 0;
+        return m.cost_price != null ? `${m.cost_price} ₴` : '';
       case 'sale_price':
-        return Number(m.sale_price) || 0;
+        return m.sale_price != null ? `${m.sale_price} ₴` : '';
       case 'supplier':
-        return (m.suppliers?.name || '').toLowerCase();
+        return m.suppliers?.name || '';
       default:
         return '';
     }
   }
 
-  function ThSort({ label, field }) {
-    const active = sortKey === field;
+  function openFilterOptions(field) {
+    const values = [...new Set(materials.map((m) => fieldValue(m, field)).filter((v) => v))].sort((a, b) =>
+      a.localeCompare(b, 'uk')
+    );
+    return filterSearch
+      ? values.filter((v) => v.toLowerCase().startsWith(filterSearch.toLowerCase()))
+      : values;
+  }
+
+  function ThFilter({ label, field }) {
+    const active = activeFilters[field];
     return (
-      <th
-        onClick={() => toggleSort(field)}
-        className="px-4 py-3 font-medium cursor-pointer select-none hover:text-forest whitespace-nowrap"
-      >
-        {label} {active && (sortDir === 'asc' ? '▲' : '▼')}
+      <th className="px-4 py-3 font-medium whitespace-nowrap relative">
+        <button
+          onClick={() => {
+            setOpenFilter(openFilter === field ? null : field);
+            setFilterSearch('');
+          }}
+          className={`cursor-pointer select-none hover:text-forest ${active ? 'text-forest' : ''}`}
+        >
+          {label} {active ? '🔽' : '▾'}
+        </button>
+        {openFilter === field && (
+          <div className="absolute z-10 top-full left-0 mt-1 bg-white border border-sage/30 rounded shadow-lg w-52 text-left font-normal normal-case">
+            <input
+              autoFocus
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              placeholder="Введіть перші літери..."
+              className="w-full border-b border-sage/20 px-3 py-2 text-sm outline-none"
+            />
+            <div className="max-h-56 overflow-y-auto">
+              {active && (
+                <button
+                  onClick={() => {
+                    setActiveFilters((f) => {
+                      const next = { ...f };
+                      delete next[field];
+                      return next;
+                    });
+                    setOpenFilter(null);
+                  }}
+                  className="block w-full text-left px-3 py-2 text-sm text-rose hover:bg-paper"
+                >
+                  ✕ Скинути фільтр
+                </button>
+              )}
+              {openFilterOptions(field).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => {
+                    setActiveFilters((f) => ({ ...f, [field]: v }));
+                    setOpenFilter(null);
+                  }}
+                  className={`block w-full text-left px-3 py-2 text-sm hover:bg-paper ${
+                    active === v ? 'bg-paper text-forest' : ''
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+              {openFilterOptions(field).length === 0 && (
+                <p className="px-3 py-2 text-sm text-sage">Нічого не знайдено.</p>
+              )}
+            </div>
+          </div>
+        )}
       </th>
     );
   }
@@ -354,34 +401,56 @@ export default function InventoryPage() {
       ) : materials.length === 0 ? (
         <p className="text-sage">Тут ще нічого немає. Додайте першу квітку чи товар.</p>
       ) : (
+        {Object.keys(activeFilters).length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            {Object.entries(activeFilters).map(([field, val]) => (
+              <span
+                key={field}
+                className="inline-flex items-center gap-1 text-xs bg-forest/10 text-forest rounded-full px-3 py-1"
+              >
+                {val}
+                <button
+                  onClick={() =>
+                    setActiveFilters((f) => {
+                      const next = { ...f };
+                      delete next[field];
+                      return next;
+                    })
+                  }
+                  className="ml-1 hover:text-rose"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button onClick={() => setActiveFilters({})} className="text-xs text-sage hover:underline">
+              Скинути всі
+            </button>
+          </div>
+        )}
+
         <div className="bg-white border border-sage/20 rounded overflow-x-auto">
           <table className="w-full min-w-max text-sm">
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium"></th>
-                <ThSort label="Назва" field="name" />
-                <ThSort label="Категорія" field="category" />
-                <ThSort label="Виробник" field="manufacturer" />
-                <ThSort label="Кількість тут" field="quantity" />
-                <ThSort label="Од." field="unit" />
-                {role === 'owner' && <ThSort label="Закупівельна ціна" field="cost_price" />}
-                <ThSort label="Роздрібна ціна" field="sale_price" />
-                {role === 'owner' && <ThSort label="Постачальник" field="supplier" />}
+                <ThFilter label="Назва" field="name" />
+                <ThFilter label="Категорія" field="category" />
+                <ThFilter label="Виробник" field="manufacturer" />
+                <th className="px-4 py-3 font-medium">Кількість тут</th>
+                <th className="px-4 py-3 font-medium">Од.</th>
+                {role === 'owner' && <ThFilter label="Закупівельна ціна" field="cost_price" />}
+                <ThFilter label="Роздрібна ціна" field="sale_price" />
+                {role === 'owner' && <ThFilter label="Постачальник" field="supplier" />}
                 {role === 'owner' && <th className="px-4 py-3 font-medium"></th>}
               </tr>
             </thead>
             <tbody>
-              {(sortKey
-                ? [...materials].sort((a, b) => {
-                    const va = sortValue(a, sortKey);
-                    const vb = sortValue(b, sortKey);
-                    if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va;
-                    return sortDir === 'asc'
-                      ? String(va).localeCompare(String(vb), 'uk')
-                      : String(vb).localeCompare(String(va), 'uk');
-                  })
-                : materials
-              ).map((m) => {
+              {materials
+                .filter((m) =>
+                  Object.entries(activeFilters).every(([field, val]) => fieldValue(m, field) === val)
+                )
+                .map((m) => {
                 const isZero = Number(m.quantity) === 0;
                 const low = !isZero && m.quantity <= m.min_quantity;
                 return (
