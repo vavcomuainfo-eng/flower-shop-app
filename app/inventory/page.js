@@ -401,6 +401,7 @@ export default function InventoryPage() {
       ) : materials.length === 0 ? (
         <p className="text-sage">Тут ще нічого немає. Додайте першу квітку чи товар.</p>
       ) : (
+        <>
         {Object.keys(activeFilters).length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-3">
             {Object.entries(activeFilters).map(([field, val]) => (
@@ -496,6 +497,7 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {showForm && (
