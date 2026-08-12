@@ -17,6 +17,7 @@ const emptyForm = {
   supplier_id: '',
   category_id: '',
   manufacturer_id: '',
+  sku: '',
   image_url: '',
 };
 
@@ -40,6 +41,8 @@ export default function InventoryPage() {
     switch (key) {
       case 'name':
         return m.name || '';
+      case 'sku':
+        return m.sku || '';
       case 'category':
         return m.categories?.name || m.category_name || '';
       case 'manufacturer':
@@ -158,7 +161,7 @@ export default function InventoryPage() {
   }
 
   async function loadCategories() {
-    const { data, error } = await supabase.from('categories').select('id, name').order('name');
+    const { data, error } = await supabase.from('categories').select('id, name, code_prefix').order('name');
     if (!error) setCategories(data || []);
   }
 
@@ -205,6 +208,12 @@ export default function InventoryPage() {
     setEditingCategoryId(null);
     loadCategories();
     loadMaterials(locationId, role);
+  }
+
+  async function handleUpdatePrefix(id, prefix) {
+    const clean = prefix.trim().toUpperCase().slice(0, 6) || null;
+    await supabase.from('categories').update({ code_prefix: clean }).eq('id', id);
+    loadCategories();
   }
 
   async function handleDeleteCategory(id) {
@@ -264,6 +273,7 @@ export default function InventoryPage() {
       supplier_id: form.supplier_id || null,
       category_id: form.category_id || null,
       manufacturer_id: form.manufacturer_id || null,
+      sku: form.sku?.trim() || null,
       image_url: form.image_url || null,
       updated_at: new Date().toISOString(),
     };
@@ -353,6 +363,9 @@ export default function InventoryPage() {
         <div className="mb-6">
           {showCategories && (
             <div className="bg-white border border-sage/20 rounded p-4 mt-2 max-w-sm">
+              <p className="text-xs text-sage mb-2">
+                Код (напр. FLR) — основа для автоматичних кодів товарів цієї категорії: FLR0001, FLR0002...
+              </p>
               {categories.length === 0 && <p className="text-sage text-sm">Категорій ще немає.</p>}
               <div className="space-y-2">
                 {categories.map((c) => (
@@ -374,6 +387,12 @@ export default function InventoryPage() {
                     ) : (
                       <>
                         <span className="flex-1 text-sm">{c.name}</span>
+                        <input
+                          defaultValue={c.code_prefix || ''}
+                          onBlur={(e) => handleUpdatePrefix(c.id, e.target.value)}
+                          placeholder="код напр. FLR"
+                          className="w-24 border border-sage/40 rounded px-2 py-1 bg-white text-xs uppercase"
+                        />
                         <button
                           onClick={() => {
                             setEditingCategoryId(c.id);
@@ -436,6 +455,7 @@ export default function InventoryPage() {
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium"></th>
                 <ThFilter label="Назва" field="name" />
+                <ThFilter label="Код" field="sku" />
                 <ThFilter label="Категорія" field="category" />
                 <ThFilter label="Виробник" field="manufacturer" />
                 <th className="px-4 py-3 font-medium">Кількість тут</th>
@@ -469,6 +489,7 @@ export default function InventoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{m.name}</td>
+                    <td className="px-4 py-3 text-sage font-mono text-xs">{m.sku || '—'}</td>
                     <td className="px-4 py-3 text-sage">{m.categories?.name || m.category_name || '—'}</td>
                     <td className="px-4 py-3 text-sage">{m.manufacturers?.name || m.manufacturer_name || '—'}</td>
                     <td className="px-4 py-3">
@@ -514,6 +535,17 @@ export default function InventoryPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full border border-sage/40 rounded px-3 py-2 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-sage mb-1">
+                  Код <span className="text-sage">(генерується сам за категорією; можна виправити вручну)</span>
+                </label>
+                <input
+                  value={form.sku || ''}
+                  onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                  placeholder="напр. FLR0001"
+                  className="w-full border border-sage/40 rounded px-3 py-2 bg-white font-mono text-sm"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">

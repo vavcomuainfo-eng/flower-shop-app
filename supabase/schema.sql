@@ -68,7 +68,14 @@ create table if not exists suppliers (
 create table if not exists categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
+  code_prefix text,          -- напр. "FLR", "VAZ" — основа коду товару цієї категорії
   created_at timestamptz default now()
+);
+
+-- Лічильник останнього номера коду для кожної категорії (щоб номери не повторювались)
+create table if not exists sku_counters (
+  category_id uuid primary key references categories(id) on delete cascade,
+  last_number int not null default 0
 );
 
 -- ---------- МАТЕРІАЛИ / ТОВАРИ (єдиний каталог на всю мережу) ----------
@@ -78,6 +85,7 @@ create table if not exists materials (
   unit text not null default 'шт',    -- шт, м, уп тощо
   category_id uuid references categories(id) on delete set null,
   manufacturer_id uuid references manufacturers(id) on delete set null,
+  sku text unique,           -- код товару, напр. FLR0001 — генерується сам за категорією
   image_url text,
   cost_price numeric not null default 0,   -- закупівельна ціна за одиницю (бачить лише власник)
   sale_price numeric not null default 0,   -- фіксована роздрібна ціна для прямого продажу (бачить каса)
@@ -561,6 +569,55 @@ begin
 end;
 $$;
 
+-- Генерує наступний код для категорії, напр. FLR0001, FLR0002...
+create or replace function generate_sku(p_category_id uuid)
+returns text
+language plpgsql security definer as $$
+declare
+  prefix text;
+  next_num int;
+begin
+  if p_category_id is null then
+    return null;
+  end if;
+  select code_prefix into prefix from categories where id = p_category_id;
+  if prefix is null or prefix = '' then
+    return null;
+  end if;
+  insert into sku_counters (category_id, last_number) values (p_category_id, 1)
+  on conflict (category_id) do update set last_number = sku_counters.last_number + 1
+  returning last_number into next_num;
+  return prefix || lpad(next_num::text, 4, '0');
+end;
+$$;
+
+-- Автоматично проставляє код при створенні товару, якщо в його категорії є префікс
+create or replace function auto_generate_sku() returns trigger as $$
+begin
+  if new.sku is null and new.category_id is not null then
+    new.sku := generate_sku(new.category_id);
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists auto_generate_sku_trigger on materials;
+create trigger auto_generate_sku_trigger
+  before insert on materials
+  for each row execute function auto_generate_sku();
+
+-- Встановлює ТОЧНУ кількість (а не додає), щоб можна було виправити помилку введення або обнулити
+create or replace function set_stock_quantity(p_material_id uuid, p_location_id uuid, p_quantity numeric)
+returns void
+language plpgsql security definer as $$
+begin
+  insert into stock_levels (location_id, material_id, quantity)
+  values (p_location_id, p_material_id, p_quantity)
+  on conflict (location_id, material_id)
+  do update set quantity = p_quantity, updated_at = now();
+end;
+$$;
+
 -- =========================================================
 -- Функції для роботи зі складом (з урахуванням конкретного магазину)
 -- =========================================================
@@ -594,12 +651,13 @@ $$ language plpgsql security definer;
 create or replace function get_materials_catalog(p_location_id uuid)
 returns table(
   id uuid, name text, unit text, quantity numeric, min_quantity numeric, sale_price numeric,
-  category_name text, image_url text, category_id uuid, manufacturer_name text, manufacturer_id uuid
+  category_name text, image_url text, category_id uuid, manufacturer_name text, manufacturer_id uuid,
+  sku text
 )
 language sql security definer stable as $$
   select m.id, m.name, m.unit,
     coalesce(sl.quantity, 0), coalesce(sl.min_quantity, 0), m.sale_price,
-    c.name, m.image_url, m.category_id, mf.name, m.manufacturer_id
+    c.name, m.image_url, m.category_id, mf.name, m.manufacturer_id, m.sku
   from materials m
   left join stock_levels sl on sl.material_id = m.id and sl.location_id = p_location_id
   left join categories c on c.id = m.category_id

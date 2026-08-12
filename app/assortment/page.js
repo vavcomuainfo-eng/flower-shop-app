@@ -16,6 +16,7 @@ export default function AssortmentPage() {
   const [manufacturers, setManufacturers] = useState([]);
   const [newManufacturerName, setNewManufacturerName] = useState('');
   const [restockAmounts, setRestockAmounts] = useState({});
+  const [editQuantities, setEditQuantities] = useState({});
   const [message, setMessage] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -79,6 +80,28 @@ export default function AssortmentPage() {
       p_location_id: locationId,
     });
     setRestockAmounts({ ...restockAmounts, [materialId]: '' });
+    loadMaterials(locationId);
+  }
+
+  async function handleSetExact(materialId) {
+    const value = editQuantities[materialId];
+    if (value === undefined || value === '') return;
+    await supabase.rpc('set_stock_quantity', {
+      p_material_id: materialId,
+      p_location_id: locationId,
+      p_quantity: Number(value),
+    });
+    setEditQuantities({ ...editQuantities, [materialId]: undefined });
+    loadMaterials(locationId);
+  }
+
+  async function handleRemoveFromShop(materialId, name) {
+    if (!confirm(`Прибрати "${name}" з цього магазину (кількість стане 0)?`)) return;
+    await supabase.rpc('set_stock_quantity', {
+      p_material_id: materialId,
+      p_location_id: locationId,
+      p_quantity: 0,
+    });
     loadMaterials(locationId);
   }
 
@@ -265,6 +288,7 @@ export default function AssortmentPage() {
                         />
                       ) : null}
                       {m.name}
+                      {m.sku && <span className="text-xs text-sage font-mono ml-2">[{m.sku}]</span>}
                       {m.category_name && <span className="text-xs text-sage ml-2">({m.category_name})</span>}
                       {role === 'admin' && (
                         <>
@@ -313,23 +337,41 @@ export default function AssortmentPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={isZero ? 'text-rose font-medium' : low ? 'text-amber font-medium' : 'text-ink'}>
-                        {m.quantity} {m.unit}
-                      </span>
-                      {low && <span className="text-amber text-xs ml-2">мало</span>}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="1"
+                          value={editQuantities[m.id] ?? m.quantity}
+                          onChange={(e) => setEditQuantities({ ...editQuantities, [m.id]: e.target.value })}
+                          className={`w-20 border rounded px-2 py-1 bg-white ${
+                            isZero ? 'text-rose' : low ? 'text-amber' : 'text-ink'
+                          }`}
+                        />
+                        <span className="text-xs text-sage">{m.unit}</span>
+                        {editQuantities[m.id] !== undefined && Number(editQuantities[m.id]) !== Number(m.quantity) && (
+                          <button onClick={() => handleSetExact(m.id)} className="text-forest text-xs hover:underline">
+                            Зберегти
+                          </button>
+                        )}
+                      </div>
+                      {low && <span className="text-amber text-xs">мало</span>}
                     </td>
                     <td className="px-4 py-3">
                       <input
                         type="number"
                         step="1"
+                        placeholder="+кількість"
                         value={restockAmounts[m.id] || ''}
                         onChange={(e) => setRestockAmounts({ ...restockAmounts, [m.id]: e.target.value })}
                         className="w-24 border border-sage/40 rounded px-2 py-1 bg-white"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 space-x-3 whitespace-nowrap">
                       <button onClick={() => handleRestock(m.id)} className="text-forest hover:underline">
                         Поповнити
+                      </button>
+                      <button onClick={() => handleRemoveFromShop(m.id, m.name)} className="text-rose hover:underline">
+                        Прибрати
                       </button>
                     </td>
                   </tr>
