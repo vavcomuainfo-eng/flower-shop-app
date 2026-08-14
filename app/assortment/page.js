@@ -20,6 +20,8 @@ export default function AssortmentPage() {
   const [message, setMessage] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editNameValue, setEditNameValue] = useState('');
   const [zoomedImage, setZoomedImage] = useState(null);
 
   async function loadMaterials(locId) {
@@ -113,6 +115,18 @@ export default function AssortmentPage() {
   async function handleManufacturerChange(materialId, manufacturerId) {
     await supabase.from('materials').update({ manufacturer_id: manufacturerId || null }).eq('id', materialId);
     loadMaterials(locationId);
+  }
+
+  async function handleRenameMaterial(materialId) {
+    if (!editNameValue.trim()) return;
+    const { error } = await supabase.rpc('rename_material', {
+      p_material_id: materialId,
+      p_new_name: editNameValue.trim(),
+    });
+    if (!error) {
+      setEditingNameId(null);
+      loadMaterials(locationId);
+    }
   }
 
   async function handleAddManufacturer() {
@@ -287,7 +301,39 @@ export default function AssortmentPage() {
                           className="w-8 h-8 rounded object-cover inline-block mr-2 align-middle cursor-zoom-in"
                         />
                       ) : null}
-                      {m.name}
+                      {editingNameId === m.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={editNameValue}
+                            onChange={(e) => setEditNameValue(e.target.value)}
+                            className="border border-sage/40 rounded px-2 py-1 bg-white text-sm"
+                          />
+                          <button
+                            onClick={() => handleRenameMaterial(m.id)}
+                            className="text-forest text-xs hover:underline"
+                          >
+                            Зберегти
+                          </button>
+                          <button onClick={() => setEditingNameId(null)} className="text-sage text-xs">
+                            Скасувати
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          {m.name}
+                          <button
+                            onClick={() => {
+                              setEditingNameId(m.id);
+                              setEditNameValue(m.name);
+                            }}
+                            className="text-sage text-xs ml-1 hover:text-forest"
+                            title="Виправити назву"
+                          >
+                            ✏️
+                          </button>
+                        </>
+                      )}
                       {m.sku && <span className="text-xs text-sage font-mono ml-2">[{m.sku}]</span>}
                       {m.category_name && <span className="text-xs text-sage ml-2">({m.category_name})</span>}
                       {role === 'admin' && (

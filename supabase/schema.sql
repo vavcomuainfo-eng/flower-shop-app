@@ -78,6 +78,9 @@ create table if not exists sku_counters (
   last_number int not null default 0
 );
 
+-- Службова таблиця — доступ лише через функцію generate_sku(), напряму нікому не потрібна
+alter table sku_counters enable row level security;
+
 -- ---------- МАТЕРІАЛИ / ТОВАРИ (єдиний каталог на всю мережу) ----------
 create table if not exists materials (
   id uuid primary key default gen_random_uuid(),
@@ -607,6 +610,19 @@ create trigger auto_generate_sku_trigger
   for each row execute function auto_generate_sku();
 
 -- Встановлює ТОЧНУ кількість (а не додає), щоб можна було виправити помилку введення або обнулити
+-- Виправлення назви товару (якщо ввели з помилкою) — доступно будь-кому залогіненому,
+-- бо назва не є чутливими даними
+create or replace function rename_material(p_material_id uuid, p_new_name text)
+returns void
+language plpgsql security definer as $$
+begin
+  if p_new_name is null or trim(p_new_name) = '' then
+    raise exception 'name cannot be empty';
+  end if;
+  update materials set name = trim(p_new_name), updated_at = now() where id = p_material_id;
+end;
+$$;
+
 create or replace function set_stock_quantity(p_material_id uuid, p_location_id uuid, p_quantity numeric)
 returns void
 language plpgsql security definer as $$
