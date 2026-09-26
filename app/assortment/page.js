@@ -15,8 +15,8 @@ export default function AssortmentPage() {
   const [newItem, setNewItem] = useState({ name: '', unit: 'шт', quantity: 0, min_quantity: 0, category_id: '', sale_price: 0, manufacturer_id: '' });
   const [manufacturers, setManufacturers] = useState([]);
   const [newManufacturerName, setNewManufacturerName] = useState('');
-  const [restockAmounts, setRestockAmounts] = useState({});
   const [editQuantities, setEditQuantities] = useState({});
+  const [editPrices, setEditPrices] = useState({});
   const [message, setMessage] = useState('');
   const [editingPhotoId, setEditingPhotoId] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -73,37 +73,48 @@ export default function AssortmentPage() {
     }
   }
 
-  async function handleRestock(materialId) {
-    const amount = Number(restockAmounts[materialId] || 0);
-    if (!amount || !locationId) return;
-    await supabase.rpc('restock_material', {
-      p_material_id: materialId,
-      p_add_quantity: amount,
-      p_location_id: locationId,
-    });
-    setRestockAmounts({ ...restockAmounts, [materialId]: '' });
-    loadMaterials(locationId);
-  }
-
   async function handleSetExact(materialId) {
     const value = editQuantities[materialId];
     if (value === undefined || value === '') return;
-    await supabase.rpc('set_stock_quantity', {
+    const { error } = await supabase.rpc('set_stock_quantity', {
       p_material_id: materialId,
       p_location_id: locationId,
       p_quantity: Number(value),
     });
+    if (error) {
+      alert('Не вдалося зберегти кількість: ' + error.message);
+      return;
+    }
     setEditQuantities({ ...editQuantities, [materialId]: undefined });
+    loadMaterials(locationId);
+  }
+
+  async function handleSetPrice(materialId) {
+    const value = editPrices[materialId];
+    if (value === undefined || value === '') return;
+    const { error } = await supabase.rpc('update_material_sale_price', {
+      p_material_id: materialId,
+      p_new_sale_price: Number(value),
+    });
+    if (error) {
+      alert('Не вдалося зберегти ціну: ' + error.message);
+      return;
+    }
+    setEditPrices({ ...editPrices, [materialId]: undefined });
     loadMaterials(locationId);
   }
 
   async function handleRemoveFromShop(materialId, name) {
     if (!confirm(`Прибрати "${name}" з цього магазину (кількість стане 0)?`)) return;
-    await supabase.rpc('set_stock_quantity', {
+    const { error } = await supabase.rpc('set_stock_quantity', {
       p_material_id: materialId,
       p_location_id: locationId,
       p_quantity: 0,
     });
+    if (error) {
+      alert('Не вдалося прибрати товар: ' + error.message);
+      return;
+    }
     loadMaterials(locationId);
   }
 
@@ -281,8 +292,8 @@ export default function AssortmentPage() {
             <thead>
               <tr className="text-left text-sage border-b border-sage/20">
                 <th className="px-4 py-3 font-medium">Назва</th>
-                <th className="px-4 py-3 font-medium">Зараз</th>
-                <th className="px-4 py-3 font-medium">Додати</th>
+                <th className="px-4 py-3 font-medium">Кількість</th>
+                {role === 'admin' && <th className="px-4 py-3 font-medium">Ціна</th>}
                 <th className="px-4 py-3 font-medium"></th>
               </tr>
             </thead>
@@ -402,20 +413,26 @@ export default function AssortmentPage() {
                       </div>
                       {low && <span className="text-amber text-xs">мало</span>}
                     </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        step="1"
-                        placeholder="+кількість"
-                        value={restockAmounts[m.id] || ''}
-                        onChange={(e) => setRestockAmounts({ ...restockAmounts, [m.id]: e.target.value })}
-                        className="w-24 border border-sage/40 rounded px-2 py-1 bg-white"
-                      />
-                    </td>
+                    {role === 'admin' && (
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editPrices[m.id] ?? m.sale_price}
+                            onChange={(e) => setEditPrices({ ...editPrices, [m.id]: e.target.value })}
+                            className="w-20 border border-sage/40 rounded px-2 py-1 bg-white"
+                          />
+                          <span className="text-xs text-sage">₴</span>
+                          {editPrices[m.id] !== undefined && Number(editPrices[m.id]) !== Number(m.sale_price) && (
+                            <button onClick={() => handleSetPrice(m.id)} className="text-forest text-xs hover:underline">
+                              Зберегти
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-4 py-3 space-x-3 whitespace-nowrap">
-                      <button onClick={() => handleRestock(m.id)} className="text-forest hover:underline">
-                        Поповнити
-                      </button>
                       <button onClick={() => handleRemoveFromShop(m.id, m.name)} className="text-rose hover:underline">
                         Прибрати
                       </button>
