@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 import { getCurrentLocationId } from '@/lib/location';
 import { getMyRole } from '@/lib/role';
+import { compressImage } from '@/lib/imageCompress';
 
 const emptyForm = {
   id: null,
@@ -227,9 +228,9 @@ export default function InventoryPage() {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
-    const ext = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from('product-images').upload(fileName, file);
+    const compressed = await compressImage(file);
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+    const { error } = await supabase.storage.from('product-images').upload(fileName, compressed, { cacheControl: '604800' });
     if (!error) {
       const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
       setForm((f) => ({ ...f, image_url: data.publicUrl }));

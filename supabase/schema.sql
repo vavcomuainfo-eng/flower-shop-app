@@ -623,6 +623,24 @@ begin
 end;
 $$;
 
+-- Прибирає товар: якщо він ще ніде не "засвітився" (не продавався, не закуповувався,
+-- не входив у букет, не списувався, не рахувався в інвентаризації, не переміщувався) —
+-- видаляє його з каталогу зовсім. Якщо вже має історію — лише обнуляє залишок у цій точці
+-- (щоб не втратити фінансову історію).
+create or replace function delete_material_safe(p_material_id uuid, p_location_id uuid)
+returns text
+language plpgsql security definer as $$
+begin
+  delete from materials where id = p_material_id;
+  return 'deleted';
+exception
+  when foreign_key_violation then
+    update stock_levels set quantity = 0, updated_at = now()
+    where material_id = p_material_id and location_id = p_location_id;
+    return 'zeroed';
+end;
+$$;
+
 create or replace function set_stock_quantity(p_material_id uuid, p_location_id uuid, p_quantity numeric)
 returns void
 language plpgsql security definer as $$

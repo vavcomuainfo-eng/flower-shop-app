@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import ProtectedPage from '@/components/ProtectedPage';
 import { getCurrentLocationId } from '@/lib/location';
 import { getMyRole } from '@/lib/role';
+import { compressImage } from '@/lib/imageCompress';
 
 export default function AssortmentPage() {
   const [role, setRole] = useState(null);
@@ -105,15 +106,20 @@ export default function AssortmentPage() {
   }
 
   async function handleRemoveFromShop(materialId, name) {
-    if (!confirm(`Прибрати "${name}" з цього магазину (кількість стане 0)?`)) return;
-    const { error } = await supabase.rpc('set_stock_quantity', {
+    if (!confirm(`Прибрати "${name}"? Якщо товар ще ніде не використовувався — видалиться зовсім, інакше просто обнулиться тут.`))
+      return;
+    const { data, error } = await supabase.rpc('delete_material_safe', {
       p_material_id: materialId,
       p_location_id: locationId,
-      p_quantity: 0,
     });
     if (error) {
       alert('Не вдалося прибрати товар: ' + error.message);
       return;
+    }
+    if (data === 'deleted') {
+      setMessage(`"${name}" повністю видалено з каталогу.`);
+    } else {
+      setMessage(`"${name}" вже має історію (продажі/закупівлі/букет тощо), тому лишився в списку, але залишок тут обнулено.`);
     }
     loadMaterials(locationId);
   }
@@ -162,9 +168,9 @@ export default function AssortmentPage() {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
-    const ext = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from('product-images').upload(fileName, file);
+    const compressed = await compressImage(file);
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+    const { error } = await supabase.storage.from('product-images').upload(fileName, compressed, { cacheControl: '604800' });
     if (!error) {
       const { data } = supabase.storage.from('product-images').getPublicUrl(fileName);
       await supabase.from('materials').update({ image_url: data.publicUrl }).eq('id', materialId);
