@@ -358,6 +358,9 @@ export default function InventoryPage() {
               + Додати виробника
             </button>
           </div>
+          <a href="/optimize-photos" className="text-forest text-sm hover:underline whitespace-nowrap">
+            📉 Оптимізувати фото
+          </a>
         </div>
       )}
       {role === 'owner' && (
